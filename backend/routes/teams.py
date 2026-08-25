@@ -29,7 +29,7 @@ async def list_teams(
     db: Session = Depends(get_db),
 ):
     """List all teams with strength ratings."""
-    target_format = format or "T20I"
+    target_format = format or "T20"
 
     rows = db.execute(
         text("""
@@ -67,10 +67,10 @@ async def get_team(team_id: str, db: Session = Depends(get_db)):
                 tp.matches, tp.wins, tp.losses, tp.win_rate,
                 tp.batting_strength_score, tp.bowling_strength_score, tp.overall_strength_score
             FROM teams t
-            LEFT JOIN team_performance tp ON t.id = tp.team_id AND tp.format = 'T20I' AND tp.period = 'career'
+            LEFT JOIN team_performance tp ON t.id = tp.team_id AND tp.format = :fmt AND tp.period = 'career'
             WHERE t.id = :tid
         """),
-        {"tid": team_id}
+        {"tid": team_id, "fmt": target_format}
     ).fetchone()
 
     if not row:
@@ -89,7 +89,7 @@ async def get_team_analytics(
     db: Session = Depends(get_db),
 ):
     """Get comprehensive team analytics."""
-    target_format = format or "T20I"
+    target_format = format or "T20"
     target_period = period or "career"
 
     row = db.execute(

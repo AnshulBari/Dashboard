@@ -31,7 +31,7 @@ async def list_matches(
     db: Session = Depends(get_db),
 ):
     """List matches with filtering options."""
-    target_format = format or "T20I"
+    target_format = format or "T20"
 
     rows = db.execute(
         text("""

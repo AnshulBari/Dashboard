@@ -29,7 +29,7 @@ async def list_venues(
     db: Session = Depends(get_db),
 ):
     """List all venues with key statistics."""
-    target_format = format or "T20I"
+    target_format = format or "T20"
 
     rows = db.execute(
         text("""
@@ -61,7 +61,7 @@ async def get_venue_analytics(
     db: Session = Depends(get_db),
 ):
     """Get comprehensive venue analytics."""
-    target_format = format or "T20I"
+    target_format = format or "T20"
 
     row = db.execute(
         text("""

@@ -39,7 +39,8 @@ async def list_players(
 
     Returns player summary including form score, batting/bowling stats.
     """
-    target_format = format or "T20I"
+    # Default to T20 (IPL) if no format specified
+    target_format = format or "T20"
 
     # Build query with optional filters
     query = text("""
@@ -107,7 +108,7 @@ async def list_players(
 
 
 @router.get("/{player_id}")
-async def get_player(player_id: str, db: Session = Depends(get_db)):
+async def get_player(player_id: str, format: Optional[str] = Query(None), db: Session = Depends(get_db)):
     """
     Get detailed player information.
     """
@@ -117,6 +118,8 @@ async def get_player(player_id: str, db: Session = Depends(get_db)):
         UUID(player_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid player ID format")
+
+    target_format = format or "T20"
 
     row = db.execute(
         text("""
@@ -133,11 +136,11 @@ async def get_player(player_id: str, db: Session = Depends(get_db)):
                 pbs.death_runs, pbs.death_strike_rate
             FROM players p
             LEFT JOIN teams t ON p.team_id = t.id
-            LEFT JOIN player_form pf ON p.id = pf.player_id AND pf.format = 'T20I'
-            LEFT JOIN player_batting_stats pbs ON p.id = pbs.player_id AND pbs.format = 'T20I' AND pbs.period = 'career'
+            LEFT JOIN player_form pf ON p.id = pf.player_id AND pf.format = :fmt
+            LEFT JOIN player_batting_stats pbs ON p.id = pbs.player_id AND pbs.format = :fmt AND pbs.period = 'career'
             WHERE p.id = :pid
         """),
-        {"pid": player_id}
+        {"pid": player_id, "fmt": target_format}
     ).fetchone()
 
     if not row:
@@ -152,9 +155,9 @@ async def get_player(player_id: str, db: Session = Depends(get_db)):
             SELECT matches, innings, overs, balls_bowled, wickets, runs_conceded,
                    bowling_average, strike_rate, economy, dot_ball_pct
             FROM player_bowling_stats
-            WHERE player_id = :pid AND format = 'T20I' AND period = 'career'
+            WHERE player_id = :pid AND format = :fmt AND period = 'career'
         """),
-        {"pid": player_id}
+        {"pid": player_id, "fmt": target_format}
     ).fetchone()
 
     if bowling:
@@ -164,8 +167,10 @@ async def get_player(player_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{player_id}/form")
-async def get_player_form(player_id: str, db: Session = Depends(get_db)):
+async def get_player_form(player_id: str, format: Optional[str] = Query(None), db: Session = Depends(get_db)):
     """Get player form score with component breakdown."""
+    target_format = format or "T20"
+
     row = db.execute(
         text("""
             SELECT
@@ -175,9 +180,9 @@ async def get_player_form(player_id: str, db: Session = Depends(get_db)):
                 match_situation_component, efficiency_component,
                 recent_innings_count
             FROM player_form
-            WHERE player_id = :pid AND format = 'T20I'
+            WHERE player_id = :pid AND format = :fmt
         """),
-        {"pid": player_id}
+        {"pid": player_id, "fmt": target_format}
     ).fetchone()
 
     if not row:
@@ -209,7 +214,7 @@ async def get_player_batting(
     db: Session = Depends(get_db),
 ):
     """Get detailed batting statistics for a player."""
-    target_format = format or "T20I"
+    target_format = format or "T20"
     target_period = period or "career"
 
     row = db.execute(
@@ -234,7 +239,7 @@ async def get_player_bowling(
     db: Session = Depends(get_db),
 ):
     """Get detailed bowling statistics for a player."""
-    target_format = format or "T20I"
+    target_format = format or "T20"
     target_period = period or "career"
 
     row = db.execute(
@@ -259,7 +264,7 @@ async def get_player_matchups(
     db: Session = Depends(get_db),
 ):
     """Get player matchup data against specific opponents."""
-    target_format = format or "T20I"
+    target_format = format or "T20"
 
     if type == "batting":
         rows = db.execute(

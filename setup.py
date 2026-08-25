@@ -139,11 +139,23 @@ def _create_sqlite_schema(conn):
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     
+    CREATE TABLE IF NOT EXISTS competitions (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        short_name TEXT,
+        format TEXT NOT NULL,
+        governing_body TEXT,
+        season TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    
     CREATE TABLE IF NOT EXISTS matches (
         id TEXT PRIMARY KEY,
+        external_id TEXT UNIQUE,
+        competition_id TEXT REFERENCES competitions(id),
+        venue_id TEXT REFERENCES venues(id),
         match_date DATE NOT NULL,
         format TEXT NOT NULL,
-        venue_id TEXT REFERENCES venues(id),
         team_a_id TEXT REFERENCES teams(id),
         team_b_id TEXT REFERENCES teams(id),
         toss_winner_id TEXT,
@@ -151,7 +163,42 @@ def _create_sqlite_schema(conn):
         winner_id TEXT REFERENCES teams(id),
         win_margin INTEGER,
         win_type TEXT,
+        player_of_match_id TEXT REFERENCES players(id),
+        total_innings INTEGER,
+        total_deliveries INTEGER,
         is_live BOOLEAN DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    
+    CREATE TABLE IF NOT EXISTS innings (
+        id TEXT PRIMARY KEY,
+        match_id TEXT NOT NULL REFERENCES matches(id),
+        innings_number INTEGER NOT NULL,
+        batting_team_id TEXT REFERENCES teams(id),
+        bowling_team_id TEXT REFERENCES teams(id),
+        total_runs INTEGER DEFAULT 0,
+        total_wickets INTEGER DEFAULT 0,
+        total_overs REAL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(match_id, innings_number)
+    );
+    
+    CREATE TABLE IF NOT EXISTS deliveries (
+        id TEXT PRIMARY KEY,
+        innings_id TEXT NOT NULL REFERENCES innings(id),
+        match_id TEXT NOT NULL REFERENCES matches(id),
+        over_number INTEGER NOT NULL,
+        ball_in_over INTEGER NOT NULL,
+        striker_id TEXT REFERENCES players(id),
+        non_striker_id TEXT REFERENCES players(id),
+        bowler_id TEXT REFERENCES players(id),
+        runs_bat INTEGER DEFAULT 0,
+        runs_extras INTEGER DEFAULT 0,
+        total_runs INTEGER DEFAULT 0,
+        extra_type TEXT,
+        is_wicket BOOLEAN DEFAULT 0,
+        wicket_type TEXT,
+        dismissed_player_id TEXT REFERENCES players(id),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     
@@ -182,6 +229,10 @@ def _create_sqlite_schema(conn):
         death_strike_rate REAL,
         chasing_runs INTEGER DEFAULT 0,
         chasing_strike_rate REAL,
+        chasing_average REAL,
+        first_innings_runs INTEGER DEFAULT 0,
+        first_innings_strike_rate REAL,
+        consistency_score REAL,
         calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(player_id, format, period)
     );
@@ -202,6 +253,15 @@ def _create_sqlite_schema(conn):
         economy REAL,
         dot_ball_pct REAL,
         boundary_conceded_pct REAL,
+        powerplay_overs REAL DEFAULT 0,
+        powerplay_wickets INTEGER DEFAULT 0,
+        powerplay_economy REAL,
+        middle_overs REAL DEFAULT 0,
+        middle_wickets INTEGER DEFAULT 0,
+        middle_economy REAL,
+        death_overs REAL DEFAULT 0,
+        death_wickets INTEGER DEFAULT 0,
+        death_economy REAL,
         calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(player_id, format, period)
     );

@@ -37,6 +37,8 @@ async def get_rankings(
     - Bowling: based on economy + wickets + bowling_average
     - Allrounder: combined batting + bowling metrics
     """
+    target_format = format or "T20"
+
     if category == "batting":
         rows = db.execute(
             text("""
@@ -61,7 +63,7 @@ async def get_rankings(
                 ORDER BY rating DESC NULLS LAST
                 LIMIT :limit
             """),
-            {"fmt": format, "limit": limit}
+            {"fmt": target_format, "limit": limit}
         ).fetchall()
 
     elif category == "bowling":
@@ -86,7 +88,7 @@ async def get_rankings(
                 ORDER BY rating DESC NULLS LAST
                 LIMIT :limit
             """),
-            {"fmt": format, "limit": limit}
+            {"fmt": target_format, "limit": limit}
         ).fetchall()
 
     else:  # allrounder
@@ -114,7 +116,7 @@ async def get_rankings(
                 ORDER BY rating DESC NULLS LAST
                 LIMIT :limit
             """),
-            {"fmt": format, "limit": limit}
+            {"fmt": target_format, "limit": limit}
         ).fetchall()
 
     rankings = []
@@ -125,7 +127,7 @@ async def get_rankings(
         rankings.append(d)
 
     return {
-        "format": format,
+        "format": target_format,
         "category": category,
         "rankings": rankings,
         "total": len(rankings),

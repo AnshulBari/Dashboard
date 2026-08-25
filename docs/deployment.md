@@ -2,80 +2,105 @@
 
 ## Target Architecture
 
-```
-Vercel (Frontend) → Supabase PostgreSQL (Database)
-                 ↕
-              FastAPI (Backend)
-                 ↕
-         GitHub Actions (Pipeline Scheduler)
-```
+| Component | Platform | Cost | Notes |
+|-----------|----------|------|-------|
+| Frontend | Vercel | Free | Automatic deployments from Git |
+| Database | Supabase | Free | PostgreSQL hosting, 500MB free tier |
+| API | Vercel Serverless / Railway | Free tier | FastAPI compatible |
+| Pipeline | Local / GitHub Actions | Free | Batch processing, not real-time |
 
-## Frontend (Vercel)
+## Prerequisites
 
-### Setup
-1. Connect GitHub repository to Vercel
-2. Configure build settings:
-   - Root directory: `frontend`
-   - Build command: `npm run build`
-   - Output directory: `dist`
-3. Add environment variable:
-   - `VITE_API_URL`: Your backend API URL
+- Python 3.10+
+- Node.js 18+
+- Git
+- Vercel CLI (for frontend deployment)
+- Supabase account (for production database)
 
-### Deploy
+## Local Development
+
+### 1. Clone and Install
+
 ```bash
-# Automatic deployment on push to main
-git push origin main
+git clone <repository-url>
+cd cricket-intelligence
 
-# Manual deployment
-cd frontend && npm run build
-vercel deploy --prod
+# Backend dependencies
+pip install -r backend/requirements.txt
+
+# Pipeline dependencies (same as backend)
+pip install -r data_pipeline/requirements.txt
+
+# Frontend dependencies
+cd frontend && npm install && cd ..
 ```
 
-## Database (Supabase)
+### 2. Run Pipeline
 
-### Setup
-1. Create a free Supabase project
-2. Run the schema:
-   ```bash
-   psql -h db.xxx.supabase.co -U postgres -d postgres -f database/schema.sql
-   ```
-3. Copy the connection string to your backend `.env`:
-   ```
-   DATABASE_URL=postgresql://postgres:password@db.xxx.supabase.co:5432/postgres
-   ```
-
-### Free Tier Limits
-- 500MB database
-- 50,000 monthly active users
-- 500MB file storage
-- Enough for development and moderate traffic
-
-## Backend
-
-### Option 1: Vercel Serverless (Recommended)
-Convert FastAPI routes to Vercel serverless functions for zero-cost hosting.
-
-### Option 2: Railway / Fly.io
-Deploy FastAPI on a free-tier platform:
 ```bash
-# Railway
-railway init
-railway add --service cricket-api
-railway deploy
+# Download and process IPL data
+python -m data_pipeline.pipeline.run --format ipl --sample 200
 ```
 
-### Option 3: Local Development
+### 3. Start Services
+
 ```bash
-cd backend
-uvicorn backend.main:app --reload --port 8000
+# Backend API (Terminal 1)
+DATABASE_URL="sqlite:///data/cricket_intelligence.db" \
+  uvicorn backend.main:app --reload --port 8000
+
+# Frontend (Terminal 2)
+cd frontend
+VITE_API_URL="http://localhost:8000/api" npm run dev
 ```
 
-## Data Pipeline
+### 4. Verify
 
-### GitHub Actions (Scheduled)
+- Frontend: http://localhost:5173
+- API docs: http://localhost:8000/docs
+- Health check: http://localhost:8000/api/health
+
+## Production Deployment
+
+### Frontend (Vercel)
+
+1. Push code to GitHub
+2. Connect repository to Vercel
+3. Set environment variables:
+   - `VITE_API_URL` — Your API endpoint URL
+4. Deploy
+
+### Database (Supabase)
+
+1. Create a Supabase project
+2. Go to SQL Editor
+3. Run `database/schema.sql`
+4. Note the connection string from Settings → Database
+5. Set `DATABASE_URL` environment variable
+
+### API (Vercel Serverless)
+
+Option A: Vercel Serverless Functions
+- Convert FastAPI routes to Vercel serverless functions
+- Set `DATABASE_URL` environment variable
+
+Option B: Railway / Render
+- Deploy FastAPI as a web service
+- Set `DATABASE_URL` environment variable
+- Update frontend's `VITE_API_URL` to point to the deployed API
+
+### Pipeline (GitHub Actions)
+
+The pipeline runs offline and doesn't need to be deployed as a service. Options:
+
+1. **Manual execution** — Run locally when data refresh is needed
+2. **GitHub Actions** — Schedule periodic pipeline runs
+3. **Cron job** — Run on a server
+
+Example GitHub Actions workflow:
+
 ```yaml
-# .github/workflows/pipeline.yml
-name: Data Pipeline
+name: Refresh Cricket Data
 on:
   schedule:
     - cron: '0 2 * * 0'  # Weekly on Sunday at 2 AM
@@ -85,63 +110,92 @@ jobs:
   pipeline:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - run: pip install -r data-pipeline/requirements.txt
-      - run: python -m data_pipeline.jobs.run_pipeline --format t20i
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-```
-
-### Local Development
-```bash
-# Run pipeline locally
-python -m data_pipeline.jobs.run_pipeline --format t20i --sample 100
+      - run: pip install -r data_pipeline/requirements.txt
+      - run: python -m data_pipeline.pipeline.run --format all
+      - uses: actions/upload-artifact@v3
+        with:
+          name: cricket-data
+          path: data/cricket_intelligence.db
 ```
 
 ## Environment Variables
 
-### Backend (.env)
-```
-DATABASE_URL=postgresql://user:pass@host:5432/cricket_intelligence
-CORS_ORIGINS=http://localhost:5173,http://localhost:3000,https://your-app.vercel.app
-```
+### Backend
 
-### Frontend (.env)
-```
-VITE_API_URL=http://localhost:8000/api
-# or for production:
-# VITE_API_URL=https://your-backend.railway.app/api
-```
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DATABASE_URL` | Yes | `sqlite:///data/cricket_intelligence.db` | Database connection string |
+| `CORS_ORIGINS` | No | `http://localhost:5173,...` | Comma-separated allowed origins |
 
-### GitHub Secrets
-```
-DATABASE_URL=postgresql://...
-```
+### Frontend
 
-## CI/CD Pipeline
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `VITE_API_URL` | No | `/api` | Backend API base URL |
 
-1. **On Push**: Lint, typecheck, test
-2. **On PR**: Build verification
-3. **On Merge to Main**: Deploy frontend to Vercel
-4. **Weekly**: Run data pipeline via GitHub Actions
+## Database Migration
+
+When updating the schema:
+
+1. Back up existing data (if needed)
+2. Run the updated `database/schema.sql`
+3. Re-run the pipeline to repopulate analytics
+
+The pipeline is idempotent — running it again will not create duplicate data.
 
 ## Monitoring
 
-- **Vercel**: Function logs, performance metrics
-- **Supabase**: Database metrics, query performance
-- **Pipeline**: `pipeline_summary.json` with processing stats
+### Health Check
 
-## Cost Estimate
+```bash
+curl http://localhost:8000/api/health
+# {"status": "healthy"}
+```
 
-| Service | Tier | Cost |
-|---------|------|------|
-| Vercel | Hobby | Free |
-| Supabase | Free | Free |
-| Railway | Starter | $0 (if under usage) |
-| GitHub Actions | Free | 2000 min/month |
-| Cricsheet | Free | Data is open |
+### Database Stats
 
-**Total: $0/month** for development and moderate traffic.
+```bash
+python -c "
+from data_pipeline.pipeline.db_manager import DatabaseManager
+db = DatabaseManager()
+counts = db.get_table_counts()
+for table, count in counts.items():
+    print(f'{table}: {count}')
+db.close()
+"
+```
+
+### Pipeline Logs
+
+The pipeline logs to stdout with timestamps:
+```
+2026-08-26 01:58:15 [INFO] [Stage 1] Downloading ipl data from Cricsheet...
+2026-08-26 01:58:20 [INFO] [Stage 2] Read 200 matches, 47542 deliveries
+2026-08-26 01:58:55 [INFO] [Stage 7] Wrote 237 rows to player_batting_stats
+```
+
+## Troubleshooting
+
+### CORS errors
+
+Ensure `CORS_ORIGINS` includes your frontend URL:
+```bash
+CORS_ORIGINS="http://localhost:5173,http://localhost:5176,https://your-app.vercel.app"
+```
+
+### Database connection errors
+
+For PostgreSQL, ensure:
+- `DATABASE_URL` is correct
+- The database exists and schema is applied
+- Network access is configured (Supabase requires SSL)
+
+### Pipeline download failures
+
+- Check internet connectivity
+- Cricsheet may be temporarily unavailable
+- Use `--force` to retry failed downloads

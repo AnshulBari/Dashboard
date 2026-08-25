@@ -145,18 +145,38 @@ Metrics: balls, runs, wickets, strike_rate, batting_average, dot_ball_pct, bound
 
 Matchups with fewer than 10 balls are excluded from the platform to prevent misleading small-sample statistics.
 
-## Comparison with Pandas
+## Implementation Notes
 
-For the Cricsheet T20I dataset (~200K deliveries):
+### Current Implementation (pandas)
 
-| Operation | PySpark | Pandas |
-|-----------|---------|--------|
-| Read + flatten | ~15s | ~8s |
-| Player aggregations | ~12s | ~25s |
-| Window functions | ~10s | ~45s |
-| Total pipeline | ~60s | ~120s |
-| Memory usage | ~500MB | ~2GB |
+The active pipeline uses pandas for all analytics computation. The key functions are in `data_pipeline/pipeline/analytics.py`:
 
-PySpark wins on scalability and memory efficiency. Pandas wins on development iteration speed for small datasets.
+- `compute_player_batting_stats()` — Career and phase-specific batting statistics
+- `compute_player_bowling_stats()` — Career and phase-specific bowling statistics
+- `compute_player_form_scores()` — Weighted composite form score
+- `compute_team_performance()` — Win rates, strength scores, phase performance
+- `compute_venue_stats()` — Average scores, phase-wise statistics
+- `compute_matchups()` — Head-to-head batter vs bowler statistics
 
-**Recommendation**: Use PySpark for production pipeline, Pandas for prototyping and small analytical tasks.
+### Reference Implementation (PySpark)
+
+PySpark implementations exist in `data_pipeline/spark/` and can be activated if:
+- Data volumes exceed pandas memory capacity
+- A compatible Java version (8–17) is installed
+- Distributed processing is needed
+
+### Performance Comparison
+
+For the Cricsheet IPL dataset (200 matches, ~47K deliveries):
+
+| Operation | pandas (current) | Notes |
+|-----------|-----------------|-------|
+| Download + extract | ~15s | Network-dependent |
+| Read + flatten | ~2s | JSON parsing |
+| Entity resolution | ~5s | DB lookups |
+| Write core data | ~25s | Bulk inserts |
+| Compute analytics | ~3s | In-memory |
+| Write analytics | ~2s | Truncate + insert |
+| **Total** | **~50s** | End-to-end |
+
+For larger datasets (full IPL: 1,243 matches, ~350K deliveries), the pipeline takes ~10 minutes.
