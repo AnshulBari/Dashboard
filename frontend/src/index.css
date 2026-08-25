@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-surface-50 text-gray-900 font-sans antialiased;
+  }
+  
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    @apply bg-surface-100;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-surface-300 rounded-full;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-xl border border-surface-200 shadow-sm;
+  }
+  
+  .card-hover {
+    @apply card hover:shadow-md hover:border-brand-200 transition-all duration-200;
+  }
+  
+  .stat-value {
+    @apply text-2xl font-bold text-gray-900;
+  }
+  
+  .stat-label {
+    @apply text-sm font-medium text-gray-500;
+  }
+  
+  .stat-change-positive {
+    @apply text-sm font-medium text-emerald-600;
+  }
+  
+  .stat-change-negative {
+    @apply text-sm font-medium text-red-600;
+  }
+  
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+  
+  .badge-blue {
+    @apply badge bg-blue-100 text-blue-800;
+  }
+  
+  .badge-green {
+    @apply badge bg-emerald-100 text-emerald-800;
+  }
+  
+  .badge-amber {
+    @apply badge bg-amber-100 text-amber-800;
+  }
+  
+  .page-header {
+    @apply mb-8;
+  }
+  
+  .page-title {
+    @apply text-3xl font-bold text-gray-900;
+  }
+  
+  .page-subtitle {
+    @apply mt-1 text-sm text-gray-500;
+  }
+  
+  .form-input {
+    @apply block w-full rounded-lg border border-surface-200 bg-white px-4 py-2.5 text-sm
+           text-gray-900 placeholder-gray-400 
+           focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
+  }
+  
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-lg bg-brand-600 px-4 py-2.5 
+           text-sm font-semibold text-white shadow-sm hover:bg-brand-700 
+           focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed transition-colors;
+  }
+  
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-lg border border-surface-200 
+           bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm 
+           hover:bg-surface-50 focus:outline-none focus:ring-2 focus:ring-brand-500 
+           focus:ring-offset-2 transition-colors;
+  }
+}
