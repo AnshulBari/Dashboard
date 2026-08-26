@@ -46,7 +46,7 @@ class Player(Base):
     canonical_name = Column(String(200), nullable=False)
     full_name = Column(String(300))
     country = Column(String(100))
-    team_id = Column(UUID(as_uuid=True), ForeignKey("teams.id"))
+    team_id = Column(UUID(as_uuid=True), ForeignKey("teams.id"))  # DEPRECATED: use affiliations
     date_of_birth = Column(Date)
     role = Column(String(50))
     batting_style = Column(String(50))
@@ -58,6 +58,9 @@ class Player(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    affiliations = relationship("PlayerTeamAffiliation", back_populates="player")
 
 
 class Venue(Base):
@@ -402,6 +405,37 @@ class BatterBowlerMatchup(Base):
     
     __table_args__ = (
         UniqueConstraint("batter_id", "bowler_id", "format"),
+    )
+
+
+class PlayerTeamAffiliation(Base):
+    """Links players to teams with format/competition context.
+    
+    A player can have multiple affiliations:
+    - India (T20I)
+    - India (ODI)
+    - Royal Challengers Bangalore (T20, IPL)
+    """
+    __tablename__ = "player_team_affiliations"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id = Column(UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
+    team_id = Column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False)
+    format = Column(String(20))  # 'T20', 'T20I', 'ODI', 'Test', NULL = general
+    competition_id = Column(UUID(as_uuid=True), ForeignKey("competitions.id"))
+    season = Column(String(50))
+    start_date = Column(Date)
+    end_date = Column(Date)
+    is_current = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    player = relationship("Player", back_populates="affiliations")
+    
+    __table_args__ = (
+        UniqueConstraint("player_id", "team_id", "format", "competition_id"),
+        Index("idx_pta_player", "player_id"),
+        Index("idx_pta_team", "team_id"),
+        Index("idx_pta_format", "format"),
     )
 
 

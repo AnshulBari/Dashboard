@@ -306,3 +306,41 @@ async def get_player_matchups(
         "type": type,
         "matchups": [{k: str(v) if k == "opponent_id" else v for k, v in _row_to_dict(r).items()} for r in rows],
     }
+
+
+@router.get("/{player_id}/affiliations")
+async def get_player_affiliations(player_id: str, db: Session = Depends(get_db)):
+    """Get team affiliations for a player across formats and competitions."""
+    try:
+        from uuid import UUID
+        UUID(player_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid player ID format")
+
+    rows = db.execute(
+        text("""
+            SELECT
+                pta.id, pta.format, pta.season, pta.is_current,
+                t.canonical_name AS team_name, t.short_name AS team_short,
+                c.name AS competition_name,
+                pta.start_date, pta.end_date
+            FROM player_team_affiliations pta
+            JOIN teams t ON pta.team_id = t.id
+            LEFT JOIN competitions c ON pta.competition_id = c.id
+            WHERE pta.player_id = :pid
+            ORDER BY pta.is_current DESC, t.canonical_name
+        """),
+        {"pid": player_id}
+    ).fetchall()
+
+    affiliations = []
+    for row in rows:
+        d = _row_to_dict(row)
+        d["id"] = str(d["id"])
+        affiliations.append(d)
+
+    return {
+        "player_id": player_id,
+        "affiliations": affiliations,
+        "total": len(affiliations),
+    }

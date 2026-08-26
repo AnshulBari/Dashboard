@@ -147,6 +147,27 @@ class CricsheetIngestor:
                         if progress % 10 < 1:
                             logger.info(f"  Progress: {progress:.0f}%")
             
+            # Verify it's actually a ZIP file (not HTML)
+            with open(zip_path, "rb") as f:
+                header = f.read(4)
+            if header != b"PK\x03\x04":
+                logger.warning(f"Downloaded file is not a valid ZIP for {format_type} (got {header[:4]}). "
+                              f"The download may be blocked by the server. "
+                              f"Please download manually from https://cricsheet.org/downloads/ "
+                              f"and place the ZIP at {zip_path}")
+                # Try to use existing JSON files instead
+                extract_dir = self.data_dir / format_type
+                if extract_dir.exists():
+                    json_count = len(list(extract_dir.glob("*.json")))
+                    if json_count > 0:
+                        logger.info(f"Using {json_count} existing JSON files from {extract_dir}")
+                        return extract_dir
+                raise RuntimeError(
+                    f"Downloaded file is not a valid ZIP. "
+                    f"Please download manually from https://cricsheet.org/downloads/ "
+                    f"and place at {zip_path}"
+                )
+            
             # Record checksum
             checksum = self._file_checksum(zip_path)
             self._checksums[format_type] = checksum
@@ -176,16 +197,16 @@ class CricsheetIngestor:
         zip_path = self.data_dir / f"{format_type}_json.zip"
         extract_dir = self.data_dir / format_type
         
-        if not zip_path.exists():
-            logger.info(f"ZIP not found for {format_type}, downloading...")
-            self.download(format_type)
-        
-        # Check if already extracted
+        # Check if already extracted (even without ZIP)
         if extract_dir.exists() and not force:
             json_count = len(list(extract_dir.glob("*.json")))
             if json_count > 0:
                 logger.info(f"Cricsheet {format_type} already extracted: {json_count} files")
                 return extract_dir
+        
+        if not zip_path.exists():
+            logger.info(f"ZIP not found for {format_type}, downloading...")
+            self.download(format_type)
         
         logger.info(f"Extracting {format_type} data...")
         extract_dir.mkdir(parents=True, exist_ok=True)

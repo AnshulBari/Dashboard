@@ -153,6 +153,7 @@ class CricketPipeline:
         self.db.write_matches(df)
         self.db.write_innings(df)
         self.db.write_deliveries_batch(df)
+        self.db.write_affiliations(df)
     
     def compute_analytics(self, df: pd.DataFrame) -> dict:
         """Stage 6: Compute all analytics."""
@@ -180,8 +181,12 @@ class CricketPipeline:
         
         return results
     
-    def write_analytics(self, analytics: dict):
-        """Stage 7: Write analytics to database."""
+    def write_analytics(self, analytics: dict, format_filter: str = None):
+        """Stage 7: Write analytics to database.
+        
+        If format_filter is provided, only deletes existing analytics for that format
+        before inserting new ones (preserving other formats).
+        """
         logger.info("[Stage 7] Writing analytics to database...")
         
         batting_df = analytics["batting"]
@@ -204,7 +209,7 @@ class CricketPipeline:
                 "chasing_runs", "chasing_strike_rate",
             ]
             write_df = batting_df[[c for c in cols if c in batting_df.columns]].copy()
-            self.db.write_analytics_table(write_df, "player_batting_stats")
+            self.db.write_analytics_table(write_df, "player_batting_stats", format_filter=format_filter)
         
         # --- Player Bowling Stats ---
         if not bowling_df.empty:
@@ -220,7 +225,7 @@ class CricketPipeline:
                 "death_overs", "death_wickets", "death_economy",
             ]
             write_df = bowling_df[[c for c in cols if c in bowling_df.columns]].copy()
-            self.db.write_analytics_table(write_df, "player_bowling_stats")
+            self.db.write_analytics_table(write_df, "player_bowling_stats", format_filter=format_filter)
         
         # --- Player Form ---
         if not form_df.empty:
@@ -233,7 +238,7 @@ class CricketPipeline:
                 "recent_innings_count",
             ]
             write_df = form_df[[c for c in cols if c in form_df.columns]].copy()
-            self.db.write_analytics_table(write_df, "player_form")
+            self.db.write_analytics_table(write_df, "player_form", format_filter=format_filter)
         
         # --- Team Performance ---
         team_df = analytics["team"]
@@ -249,7 +254,7 @@ class CricketPipeline:
                 "chasing_win_pct", "defending_win_pct",
             ]
             write_df = team_df[[c for c in cols if c in team_df.columns]].copy()
-            self.db.write_analytics_table(write_df, "team_performance")
+            self.db.write_analytics_table(write_df, "team_performance", format_filter=format_filter)
         
         # --- Venue Stats ---
         venue_df = analytics["venue"]
@@ -265,7 +270,7 @@ class CricketPipeline:
                 "boundary_frequency",
             ]
             write_df = venue_df[[c for c in cols if c in venue_df.columns]].copy()
-            self.db.write_analytics_table(write_df, "venue_stats")
+            self.db.write_analytics_table(write_df, "venue_stats", format_filter=format_filter)
         
         # --- Matchups ---
         if not matchups_df.empty:
@@ -278,7 +283,7 @@ class CricketPipeline:
                 "dot_balls", "boundaries", "sixes",
             ]
             write_df = matchups_df[[c for c in cols if c in matchups_df.columns]].copy()
-            self.db.write_analytics_table(write_df, "batter_bowler_matchups")
+            self.db.write_analytics_table(write_df, "batter_bowler_matchups", format_filter=format_filter)
     
     def _resolve_player_ids(self, df: pd.DataFrame, name_col: str, target_col: str = "player_id") -> pd.DataFrame:
         """Resolve player names to UUIDs in a DataFrame."""
@@ -344,17 +349,21 @@ class CricketPipeline:
                 df = self.validate(df)
                 
                 # Normalize venue and team names to merge duplicates
-                from data_pipeline.spark.normalize import normalize_venue_name, normalize_team_name
+                from data_pipeline.spark.normalize import normalize_venue_name, normalize_team_name, normalize_format
                 df["venue"] = df["venue"].apply(lambda v: normalize_venue_name(v) if pd.notna(v) else v)
                 for col in ["batting_team", "bowling_team", "team_a", "team_b", "toss_winner", "winner"]:
                     if col in df.columns:
                         df[col] = df[col].apply(lambda v: normalize_team_name(v)[0] if pd.notna(v) and v else v)
+                # Normalize format to canonical form (T20I, ODI, Test, T20)
+                df["format"] = df["format"].apply(lambda v: normalize_format(v) if pd.notna(v) and v else v)
                 
                 self.resolve_entities(df)
                 self.write_core_data(df)
                 
                 analytics = self.compute_analytics(df)
-                self.write_analytics(analytics)
+                # Use the canonical format from the data for format-scoped analytics
+                canonical_fmt = df["format"].mode().iloc[0] if len(df) > 0 else fmt.upper()
+                self.write_analytics(analytics, format_filter=canonical_fmt)
             
             # Report
             elapsed = round(time.time() - start_time, 2)

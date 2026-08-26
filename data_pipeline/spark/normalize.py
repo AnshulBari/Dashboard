@@ -242,12 +242,34 @@ def normalize_wicket_type(wicket_kind: str) -> str:
     return WICKET_TYPES.get(lower, lower.replace(" ", "_"))
 
 
-def classify_phase_udf():
-    """UDF to classify over number into match phase."""
+def classify_phase_udf(format_col=None):
+    """UDF to classify over number into match phase.
+    
+    If format_col is provided, uses format-aware rules:
+    - T20/T20I: powerplay 0-5, middle 6-14, death 15+
+    - ODI: powerplay 0-9, middle 10-39, death 40+
+    - Test: returns 'general' (no T20-style phases)
+    
+    If format_col is None, falls back to T20 rules.
+    """
+    if format_col is not None:
+        return F.when(
+            F.col(format_col) == "Test", F.lit("general")
+        ).when(
+            F.col(format_col) == "ODI",
+            F.when(F.col("over_number") <= 9, F.lit("powerplay"))
+            .when(F.col("over_number") <= 39, F.lit("middle"))
+            .otherwise(F.lit("death"))
+        ).otherwise(
+            F.when(F.col("over_number") <= 5, F.lit("powerplay"))
+            .when(F.col("over_number") <= 14, F.lit("middle"))
+            .otherwise(F.lit("death"))
+        )
+    # Default: T20 rules
     return F.when(
-        F.col("over_number") <= 6, F.lit("powerplay")
+        F.col("over_number") <= 5, F.lit("powerplay")
     ).when(
-        F.col("over_number") <= 15, F.lit("middle")
+        F.col("over_number") <= 14, F.lit("middle")
     ).otherwise(
         F.lit("death")
     )
@@ -300,12 +322,10 @@ def normalize_deliveries(df: DataFrame) -> DataFrame:
         "canonical_format", normalize_fmt(F.col("format"))
     )
     
-    # Classify phase
+    # Classify phase (format-aware)
     result = result.withColumn(
         "phase",
-        F.when(F.col("over_number") <= 6, F.lit("powerplay"))
-        .when(F.col("over_number") <= 15, F.lit("middle"))
-        .otherwise(F.lit("death"))
+        classify_phase_udf("canonical_format")
     )
     
     # Determine if batting team is chasing (second innings)

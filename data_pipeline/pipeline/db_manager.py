@@ -92,22 +92,29 @@ class DatabaseManager:
             finally:
                 conn.close()
         else:
-            # PostgreSQL: run the full schema.sql
-            schema_path = os.path.join(
-                os.path.dirname(__file__), "..", "..", "database", "schema.sql"
-            )
-            if os.path.exists(schema_path):
-                with open(schema_path, "r") as f:
-                    schema_sql = f.read()
-                conn = self.engine.raw_connection()
-                try:
-                    cursor = conn.cursor()
-                    cursor.execute(schema_sql)
-                    conn.commit()
-                finally:
-                    conn.close()
-            else:
-                logger.warning("schema.sql not found, skipping")
+            # PostgreSQL: check if tables exist, skip if they do
+            with self.engine.connect() as conn:
+                result = conn.execute(text(
+                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'teams'"
+                )).scalar()
+                if result > 0:
+                    logger.info("Schema already exists, skipping creation")
+                else:
+                    schema_path = os.path.join(
+                        os.path.dirname(__file__), "..", "..", "database", "schema.sql"
+                    )
+                    if os.path.exists(schema_path):
+                        with open(schema_path, "r") as f:
+                            schema_sql = f.read()
+                        raw_conn = self.engine.raw_connection()
+                        try:
+                            cursor = raw_conn.cursor()
+                            cursor.execute(schema_sql)
+                            raw_conn.commit()
+                        finally:
+                            raw_conn.close()
+                    else:
+                        logger.warning("schema.sql not found, skipping")
         
         logger.info("Schema created/verified")
     
@@ -154,6 +161,17 @@ class DatabaseManager:
                 for row in rows:
                     if row[1]:
                         self._match_ids[row[1]] = str(row[0])
+            except Exception:
+                pass
+            
+            # Innings (for idempotency on reruns)
+            try:
+                rows = conn.execute(text(
+                    "SELECT i.id, m.external_id, i.innings_number "
+                    "FROM innings i JOIN matches m ON i.match_id = m.id"
+                )).fetchall()
+                for row in rows:
+                    self._innings_ids[(row[1], row[2])] = str(row[0])
             except Exception:
                 pass
         
@@ -280,6 +298,27 @@ class DatabaseManager:
         self._competition_ids[name] = comp_id
         return comp_id
     
+    def resolve_season(self, competition_id: str, season_name: str) -> str:
+        """Get or create a season/edition for a competition."""
+        cache_key = f"{competition_id}:{season_name}"
+        if hasattr(self, '_season_ids') and cache_key in self._season_ids:
+            return self._season_ids[cache_key]
+        
+        if not hasattr(self, '_season_ids'):
+            self._season_ids = {}
+        
+        season_id = self._new_id()
+        
+        with self.engine.connect() as conn:
+            conn.execute(
+                text(self._upsert_sql("seasons", "id", ["competition_id", "name"])),
+                {"id": season_id, "competition_id": competition_id, "name": season_name}
+            )
+            conn.commit()
+        
+        self._season_ids[cache_key] = season_id
+        return season_id
+    
     def _normalize_team_name(self, name: str) -> tuple[str, str]:
         """Normalize a team name to (canonical_name, short_name)."""
         from data_pipeline.spark.normalize import normalize_team_name
@@ -400,6 +439,7 @@ class DatabaseManager:
             "team_a", "team_b", "toss_winner", "toss_decision",
             "winner", "win_by_runs", "win_by_wickets",
             "player_of_match", "event_name", "match_number", "competition",
+            "season", "result_type",
         ]
         available_cols = [c for c in match_cols if c in df.columns]
         matches_df = df[available_cols].drop_duplicates(subset=["match_id"])
@@ -428,6 +468,17 @@ class DatabaseManager:
                 if event_name and event_name in self._competition_ids:
                     comp_id = self._competition_ids[event_name]
                 
+                # Determine season_id from match date and competition
+                season_id = None
+                if comp_id:
+                    match_date_tmp = row.get("match_date")
+                    if pd.notna(match_date_tmp) and match_date_tmp is not None:
+                        if isinstance(match_date_tmp, pd.Timestamp):
+                            season_name = str(match_date_tmp.year)
+                        else:
+                            season_name = str(match_date_tmp)[:4]
+                        season_id = self.resolve_season(comp_id, season_name)
+                
                 # Parse date
                 match_date = row.get("match_date")
                 if pd.isna(match_date) or match_date is None:
@@ -445,6 +496,11 @@ class DatabaseManager:
                     win_margin = int(row["win_by_wickets"])
                     win_type = "wickets"
                 
+                # Determine result_type
+                result_type = row.get("result_type", "win") if "result_type" in df.columns else "win"
+                if not result_type or pd.isna(result_type):
+                    result_type = "win"
+                
                 # Count deliveries for this match
                 match_deliveries = df[df["match_id"] == match_external_id]
                 total_deliveries = len(match_deliveries)
@@ -452,15 +508,17 @@ class DatabaseManager:
                 
                 conn.execute(
                     text(self._upsert_sql("matches", "id", [
-                        "external_id", "competition_id", "venue_id", "match_date", "format",
+                        "external_id", "competition_id", "season_id", "venue_id", "match_date", "format",
                         "team_a_id", "team_b_id", "toss_winner_id", "toss_decision",
-                        "winner_id", "win_margin", "win_type", "player_of_match_id",
+                        "winner_id", "win_margin", "win_type", "result_type",
+                        "player_of_match_id",
                         "total_innings", "total_deliveries"
                     ])),
                     {
                         "id": match_db_id,
                         "external_id": match_external_id,
                         "competition_id": comp_id or None,
+                        "season_id": season_id or None,
                         "venue_id": venue_id or None,
                         "match_date": match_date,
                         "format": row.get("format", ""),
@@ -471,6 +529,7 @@ class DatabaseManager:
                         "winner_id": winner_id or None,
                         "win_margin": win_margin,
                         "win_type": win_type,
+                        "result_type": result_type,
                         "player_of_match_id": pom_id or None,
                         "total_innings": total_innings,
                         "total_deliveries": total_deliveries,
@@ -545,13 +604,100 @@ class DatabaseManager:
         logger.info(f"  Wrote {count} innings to database")
         return count
     
+    def write_affiliations(self, df: pd.DataFrame):
+        """Write player-team affiliations from delivery data.
+        
+        Creates affiliation records for each (player, team, format) combination.
+        Skips existing affiliations to ensure idempotency.
+        """
+        logger.info("Writing player-team affiliations...")
+        
+        # Extract (player, team, format) combinations from deliveries
+        affiliations = set()
+        for _, row in df.iterrows():
+            batter = row.get("batter", "")
+            batting_team = row.get("batting_team", "")
+            bowler = row.get("bowler", "")
+            bowling_team = row.get("bowling_team", "")
+            fmt = row.get("format", "")
+            
+            if batter and batting_team:
+                affiliations.add((batter, batting_team, fmt))
+            if bowler and bowling_team:
+                affiliations.add((bowler, bowling_team, fmt))
+        
+        # Load existing affiliations to skip duplicates
+        existing = set()
+        try:
+            with self.engine.connect() as conn:
+                rows = conn.execute(text(
+                    "SELECT p.canonical_name, t.canonical_name, a.format "
+                    "FROM player_team_affiliations a "
+                    "JOIN players p ON a.player_id = p.id "
+                    "JOIN teams t ON a.team_id = t.id"
+                )).fetchall()
+                for row in rows:
+                    existing.add((row[0], row[1], row[2] or ""))
+        except Exception:
+            pass
+        
+        count = 0
+        skipped = 0
+        with self.engine.connect() as conn:
+            for player_name, team_name, fmt in affiliations:
+                # Skip if already exists
+                if (player_name, team_name, fmt) in existing:
+                    skipped += 1
+                    continue
+                
+                player_id = self._player_ids.get(player_name)
+                team_id = self._team_ids.get(team_name)
+                if not player_id or not team_id:
+                    continue
+                
+                aff_id = self._new_id()
+                conn.execute(
+                    text(self._upsert_sql(
+                        "player_team_affiliations", "id",
+                        ["player_id", "team_id", "format", "is_current"]
+                    )),
+                    {
+                        "id": aff_id,
+                        "player_id": player_id,
+                        "team_id": team_id,
+                        "format": fmt or None,
+                        "is_current": True,
+                    }
+                )
+                count += 1
+            
+            conn.commit()
+        
+        if skipped > 0:
+            logger.info(f"  Skipped {skipped} existing affiliations")
+        logger.info(f"  Wrote {count} player-team affiliations")
+    
     def write_deliveries_batch(self, df: pd.DataFrame, batch_size: int = 5000) -> int:
         """
         Write deliveries in batches.
         
+        Skips deliveries that already exist (matched by innings_id + over + ball).
         Returns count of deliveries written.
         """
         total = 0
+        skipped = 0
+        
+        # Load existing deliveries to avoid duplicates on rerun
+        existing_deliveries = set()
+        try:
+            with self.engine.connect() as conn:
+                rows = conn.execute(text(
+                    "SELECT innings_id, over_number, ball_in_over FROM deliveries"
+                )).fetchall()
+                for row in rows:
+                    existing_deliveries.add((str(row[0]), row[1], row[2]))
+        except Exception:
+            pass
         
         # Process in batches
         for start in range(0, len(df), batch_size):
@@ -567,6 +713,13 @@ class DatabaseManager:
                 if not match_db_id or not innings_id:
                     continue
                 
+                # Skip if already exists
+                over_num = int(row["over_number"])
+                ball_num = int(row["ball_in_over"])
+                if (innings_id, over_num, ball_num) in existing_deliveries:
+                    skipped += 1
+                    continue
+                
                 striker_id = self._player_ids.get(row.get("batter", ""), None)
                 non_striker_id = self._player_ids.get(row.get("non_striker", ""), None)
                 bowler_id = self._player_ids.get(row.get("bowler", ""), None)
@@ -576,8 +729,8 @@ class DatabaseManager:
                     "id": self._new_id(),
                     "innings_id": innings_id,
                     "match_id": match_db_id,
-                    "over_number": int(row["over_number"]),
-                    "ball_in_over": int(row["ball_in_over"]),
+                    "over_number": over_num,
+                    "ball_in_over": ball_num,
                     "striker_id": striker_id,
                     "non_striker_id": non_striker_id or None,
                     "bowler_id": bowler_id,
@@ -607,6 +760,8 @@ class DatabaseManager:
             if (start // batch_size + 1) % 5 == 0:
                 logger.info(f"  Written {total} deliveries...")
         
+        if skipped > 0:
+            logger.info(f"  Skipped {skipped} existing deliveries")
         logger.info(f"  Wrote {total} deliveries to database")
         return total
     
@@ -614,8 +769,15 @@ class DatabaseManager:
     # Analytics Writing
     # ============================================================
     
-    def write_analytics_table(self, df: pd.DataFrame, table_name: str):
-        """Write a pandas DataFrame to an analytics table (truncate + insert)."""
+    def write_analytics_table(self, df: pd.DataFrame, table_name: str, format_filter: str = None):
+        """Write a pandas DataFrame to an analytics table.
+        
+        If format_filter is provided, only deletes existing rows for that format
+        (preserving other formats). Otherwise truncates the entire table.
+        
+        This is critical for multi-format ingestion: running T20I analytics
+        must not destroy IPL analytics.
+        """
         if df.empty:
             logger.info(f"  Skipping {table_name} (empty)")
             return
@@ -627,7 +789,10 @@ class DatabaseManager:
         
         try:
             with self.engine.connect() as conn:
-                if self.is_sqlite:
+                if format_filter:
+                    # Only delete rows for this format (preserves other formats)
+                    conn.execute(text(f"DELETE FROM {table_name} WHERE format = :fmt"), {"fmt": format_filter})
+                elif self.is_sqlite:
                     conn.execute(text(f"DELETE FROM {table_name}"))
                 else:
                     conn.execute(text(f"TRUNCATE TABLE {table_name} RESTART IDENTITY CASCADE"))
@@ -653,6 +818,7 @@ class DatabaseManager:
             "matches", "innings", "deliveries",
             "player_batting_stats", "player_bowling_stats", "player_form",
             "team_performance", "venue_stats", "batter_bowler_matchups",
+            "seasons", "format_config", "player_team_affiliations",
         ]
         counts = {}
         with self.engine.connect() as conn:

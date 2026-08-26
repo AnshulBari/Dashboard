@@ -390,6 +390,20 @@ def _create_sqlite_schema(conn):
         calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(batter_id, bowler_id, format)
     );
+    
+    CREATE TABLE IF NOT EXISTS player_team_affiliations (
+        id TEXT PRIMARY KEY,
+        player_id TEXT NOT NULL REFERENCES players(id),
+        team_id TEXT NOT NULL REFERENCES teams(id),
+        format TEXT,
+        competition_id TEXT REFERENCES competitions(id),
+        season TEXT,
+        start_date DATE,
+        end_date DATE,
+        is_current BOOLEAN DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(player_id, team_id, format, competition_id)
+    );
     """)
     
     conn.commit()

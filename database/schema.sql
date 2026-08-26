@@ -253,6 +253,29 @@ CREATE TABLE team_name_mappings (
 );
 
 -- ============================================================
+-- PLAYER-TEAM AFFILIATIONS (Universal Model)
+-- ============================================================
+
+CREATE TABLE player_team_affiliations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    format VARCHAR(20),           -- 'T20', 'T20I', 'ODI', 'Test', NULL = general
+    competition_id UUID REFERENCES competitions(id),
+    season VARCHAR(50),
+    start_date DATE,
+    end_date DATE,
+    is_current BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW(),
+
+    UNIQUE(player_id, team_id, format, competition_id)
+);
+
+CREATE INDEX idx_pta_player ON player_team_affiliations(player_id);
+CREATE INDEX idx_pta_team ON player_team_affiliations(team_id);
+CREATE INDEX idx_pta_format ON player_team_affiliations(format);
+
+-- ============================================================
 -- ANALYTICAL TABLES (Precomputed by pipeline)
 -- ============================================================
 
@@ -646,7 +669,7 @@ CREATE TRIGGER update_competitions_updated_at BEFORE UPDATE ON competitions
 -- VIEWS
 -- ============================================================
 
--- Quick player summary view — uses 'T20' (matches current pipeline output)
+-- Quick player summary view (format-agnostic)
 CREATE VIEW v_player_summary AS
 SELECT
     p.id,
@@ -660,17 +683,20 @@ SELECT
     pbs.batting_average,
     pbs.strike_rate,
     pbs.innings as career_innings,
+    pbs.format as primary_format,
     pws.wickets as career_wickets,
     pws.economy as career_economy,
     pws.bowling_average,
     pf.form_score
 FROM players p
 LEFT JOIN teams t ON p.team_id = t.id
-LEFT JOIN player_batting_stats pbs ON p.id = pbs.player_id AND pbs.format = 'T20' AND pbs.period = 'career'
-LEFT JOIN player_bowling_stats pws ON p.id = pws.player_id AND pws.format = 'T20' AND pws.period = 'career'
-LEFT JOIN player_form pf ON p.id = pf.player_id AND pf.format = 'T20';
+LEFT JOIN player_batting_stats pbs ON p.id = pbs.player_id
+    AND pbs.period = 'career'
+LEFT JOIN player_bowling_stats pws ON p.id = pws.player_id
+    AND pws.period = 'career'
+LEFT JOIN player_form pf ON p.id = pf.player_id;
 
--- Team summary view — uses 'T20' (matches current pipeline output)
+-- Team summary view (format-agnostic)
 CREATE VIEW v_team_summary AS
 SELECT
     t.id,
@@ -681,9 +707,11 @@ SELECT
     tp.win_rate,
     tp.batting_strength_score,
     tp.bowling_strength_score,
-    tp.overall_strength_score
+    tp.overall_strength_score,
+    tp.format
 FROM teams t
-LEFT JOIN team_performance tp ON t.id = tp.team_id AND tp.format = 'T20' AND tp.period = 'career';
+LEFT JOIN team_performance tp ON t.id = tp.team_id
+    AND tp.period = 'career';
 
 -- ============================================================
 -- INDEXES for common query patterns
