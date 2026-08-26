@@ -80,18 +80,18 @@ class TestPlayerAffiliations:
         engine.dispose()
 
     def test_kohli_has_rcb_affiliation(self):
-        """V Kohli should have a Royal Challengers Bangalore T20 affiliation (IPL)."""
+        """Virat Kohli should have a Royal Challengers Bangalore T20 affiliation (IPL)."""
         engine = create_engine(DATABASE_URL)
         with engine.connect() as conn:
             result = conn.execute(text("""
                 SELECT COUNT(*) FROM player_team_affiliations a
                 JOIN players p ON a.player_id = p.id
                 JOIN teams t ON a.team_id = t.id
-                WHERE p.canonical_name = 'V Kohli'
+                WHERE p.canonical_name = 'Virat Kohli'
                   AND t.canonical_name = 'Royal Challengers Bangalore'
                   AND a.format = 'T20'
             """)).scalar()
-            assert result == 1, f"V Kohli RCB affiliation not found"
+            assert result == 1, f"Virat Kohli RCB affiliation not found"
         engine.dispose()
 
 
@@ -379,7 +379,7 @@ class TestIPLRegression:
         with engine.connect() as conn:
             runs = conn.execute(text(
                 "SELECT runs FROM player_batting_stats WHERE player_id = "
-                "(SELECT id FROM players WHERE canonical_name = 'V Kohli' LIMIT 1) "
+                "(SELECT id FROM players WHERE canonical_name = 'Virat Kohli' LIMIT 1) "
                 "AND format = 'T20' AND period = 'career'"
             )).scalar()
             assert runs == 9346, f"Expected 9346, got {runs}"

@@ -439,6 +439,27 @@ class PlayerTeamAffiliation(Base):
     )
 
 
+class PlayerNameMapping(Base):
+    """Maps source-specific player names to canonical player identities.
+    
+    Used to resolve Cricsheet abbreviated names (e.g. 'V Kohli') to
+    canonical player identities (e.g. 'Virat Kohli').
+    """
+    __tablename__ = "player_name_mappings"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    player_id = Column(UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
+    source = Column(String(50), nullable=False)  # 'cricsheet', 'icc', 'manual'
+    source_id = Column(String(100))
+    name_variant = Column(String(300), nullable=False)
+    confidence = Column(Float, default=1.0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        UniqueConstraint("source", "name_variant"),
+    )
+
+
 class NewsArticle(Base):
     __tablename__ = "news_articles"
     

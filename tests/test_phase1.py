@@ -260,9 +260,9 @@ class TestIPLRegression:
         engine = create_engine(DATABASE_URL)
         with engine.connect() as conn:
             runs = conn.execute(
-                text("SELECT runs FROM player_batting_stats WHERE player_id = (SELECT id FROM players WHERE canonical_name = 'V Kohli' LIMIT 1) AND format = 'T20' AND period = 'career'")
+                text("SELECT runs FROM player_batting_stats WHERE player_id = (SELECT id FROM players WHERE canonical_name = 'Virat Kohli' LIMIT 1) AND format = 'T20' AND period = 'career'")
             ).scalar()
-            assert runs == 9346, f"Expected V Kohli to have 9346 runs, got {runs}"
+            assert runs == 9346, f"Expected Virat Kohli to have 9346 runs, got {runs}"
         engine.dispose()
 
     def test_form_score_exists(self):

@@ -193,11 +193,11 @@ class TestFormatIsolation:
         from sqlalchemy import text
         r = pg_conn.execute(text(
             "SELECT runs FROM player_batting_stats WHERE "
-            "player_id=(SELECT id FROM players WHERE canonical_name='V Kohli' LIMIT 1) "
+            "player_id=(SELECT id FROM players WHERE canonical_name='Virat Kohli' LIMIT 1) "
             "AND format='T20' LIMIT 1"
         )).fetchone()
-        assert r is not None, "V Kohli IPL stats not found"
-        assert r[0] == 9346, f"V Kohli IPL runs changed: expected 9346, got {r[0]}"
+        assert r is not None, "Virat Kohli IPL stats not found"
+        assert r[0] == 9346, f"Virat Kohli IPL runs changed: expected 9346, got {r[0]}"
 
     def test_ipl_matchups_unchanged(self, pg_conn):
         from sqlalchemy import text

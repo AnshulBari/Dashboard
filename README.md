@@ -966,6 +966,10 @@ Men's T20I data ingestion pipeline validated with representative fixtures. Cross
 
 Men's ODI cricket data with World Cup, Champions Trophy, Asia Cup, and bilateral fixtures. 8 matches / 793 deliveries across 11 teams. 43 new tests. Full IPL regression verified.
 
+### Phase 3.1: Identity Hardening ✅
+
+Merged "V Kohli" → "Virat Kohli" (15,005 FK updates, 0 orphans). Player name mapping system. Data quality audit. 176/176 tests passing.
+
 ### Not yet implemented (Phase 4+)
 
 - Test cricket ingestion (4 innings, draws, declarations)

@@ -71,6 +71,9 @@ class DatabaseManager:
         self._match_ids = {}     # external_id → id
         self._innings_ids = {}   # (match_id, innings_number) → id
         
+        # Player name mappings: source_name → canonical_player_name
+        self._player_name_mappings = {}  # source_name → canonical_name
+        
         # Reverse caches for lookup
         self._team_names = {}    # id → canonical_name
         self._player_names = {}  # id → canonical_name
@@ -155,6 +158,18 @@ class DatabaseManager:
             except Exception:
                 pass
             
+            # Player name mappings (for alias resolution)
+            try:
+                rows = conn.execute(text(
+                    "SELECT m.name_variant, p.canonical_name "
+                    "FROM player_name_mappings m "
+                    "JOIN players p ON m.player_id = p.id"
+                )).fetchall()
+                for row in rows:
+                    self._player_name_mappings[row[0]] = row[1]
+            except Exception:
+                pass
+            
             # Matches
             try:
                 rows = conn.execute(text("SELECT id, external_id FROM matches")).fetchall()
@@ -179,7 +194,8 @@ class DatabaseManager:
             f"Loaded existing: {len(self._team_ids)} teams, "
             f"{len(self._player_ids)} players, "
             f"{len(self._venue_ids)} venues, "
-            f"{len(self._match_ids)} matches"
+            f"{len(self._match_ids)} matches, "
+            f"{len(self._player_name_mappings)} name mappings"
         )
     
     def _new_id(self) -> str:
@@ -238,9 +254,24 @@ class DatabaseManager:
         bowling_style: str = "", bowling_type: str = "",
         external_id: str = "",
     ) -> str:
-        """Get or create a player, returning its UUID."""
-        if name in self._player_ids:
-            return self._player_ids[name]
+        """Get or create a player, returning its UUID.
+        
+        Checks name mappings first to resolve aliases like 'V Kohli' → 'Virat Kohli'.
+        """
+        # Check name mappings first
+        canonical = self._player_name_mappings.get(name, name)
+        if canonical != name:
+            # This name maps to a different canonical name
+            if canonical in self._player_ids:
+                # Store the alias mapping too
+                self._player_ids[name] = self._player_ids[canonical]
+                return self._player_ids[canonical]
+        
+        # Use canonical name for lookup
+        lookup_name = canonical
+        if lookup_name in self._player_ids:
+            self._player_ids[name] = self._player_ids[lookup_name]
+            return self._player_ids[lookup_name]
         
         player_id = self._new_id()
         
@@ -260,7 +291,8 @@ class DatabaseManager:
             conn.commit()
         
         self._player_ids[name] = player_id
-        self._player_names[player_id] = name
+        self._player_ids[lookup_name] = player_id  # Also map canonical name
+        self._player_names[player_id] = lookup_name
         
         return player_id
     
