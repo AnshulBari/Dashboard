@@ -23,7 +23,37 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from data_pipeline.pipeline.format_config import get_format_rules, FormatRules
+
 logger = logging.getLogger(__name__)
+
+
+def _classify_phase_format_aware(over_number: int, fmt: str) -> str:
+    """
+    Classify an over into a phase using format-aware rules.
+    
+    For Test cricket, returns 'general' (no T20-style phases).
+    For limited-overs formats, returns powerplay/middle/death.
+    """
+    rules = get_format_rules(fmt)
+    return rules.classify_phase(over_number)
+
+
+def _get_phase_over_ranges(fmt: str) -> list[tuple[str, int, int]]:
+    """
+    Get phase over ranges for a format.
+    
+    Returns list of (phase_name, start_over, end_over) tuples.
+    For Test cricket, returns a single 'general' phase covering all overs.
+    """
+    rules = get_format_rules(fmt)
+    if rules.format == "Test":
+        return [("general", 0, 1000)]
+    return [
+        ("powerplay", 0, rules.powerplay_end),
+        ("middle", rules.powerplay_end + 1, rules.middle_end),
+        ("death", rules.middle_end + 1, 1000),
+    ]
 
 
 # ============================================================
@@ -107,12 +137,15 @@ def compute_player_batting_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
         0.0
     )
     
-    # Phase-specific batting
-    for phase_name, over_range in [("powerplay", (0, 6)), ("middle", (7, 15)), ("death", (16, 100))]:
-        phase_data = batting[
-            (batting["over_number"] >= over_range[0]) & 
-            (batting["over_number"] <= over_range[1])
-        ]
+    # Phase-specific batting — format-aware
+    # Use a unified approach: classify each delivery's phase per format
+    batting_with_phase = batting.copy()
+    batting_with_phase["phase"] = batting_with_phase.apply(
+        lambda r: _classify_phase_format_aware(r["over_number"], r["format"]), axis=1
+    )
+    
+    for phase_name in ["powerplay", "middle", "death"]:
+        phase_data = batting_with_phase[batting_with_phase["phase"] == phase_name]
         
         phase_agg = phase_data.groupby(["batter", "format"]).agg(
             runs=("runs_batter", "sum"),
@@ -251,12 +284,14 @@ def compute_player_bowling_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
         0.0
     )
     
-    # Phase-specific bowling
-    for phase_name, over_range in [("powerplay", (0, 6)), ("middle", (7, 15)), ("death", (16, 100))]:
-        phase_data = valid_balls[
-            (valid_balls["over_number"] >= over_range[0]) & 
-            (valid_balls["over_number"] <= over_range[1])
-        ]
+    # Phase-specific bowling — format-aware
+    bowling_with_phase = valid_balls.copy()
+    bowling_with_phase["phase"] = bowling_with_phase.apply(
+        lambda r: _classify_phase_format_aware(r["over_number"], r["format"]), axis=1
+    )
+    
+    for phase_name in ["powerplay", "middle", "death"]:
+        phase_data = bowling_with_phase[bowling_with_phase["phase"] == phase_name]
         
         phase_agg = phase_data.groupby(["bowler", "format"]).agg(
             runs=("runs_total", "sum"),
@@ -536,11 +571,10 @@ def compute_team_performance(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     )
     team_perf["defending_win_pct"] = np.round(100 - team_perf["chasing_win_pct"], 2)
     
-    # Phase stats
+    # Phase stats — format-aware
     phase_data = deliveries_df.copy()
-    phase_data["phase"] = np.where(
-        phase_data["over_number"] <= 6, "powerplay",
-        np.where(phase_data["over_number"] <= 15, "middle", "death")
+    phase_data["phase"] = phase_data.apply(
+        lambda r: _classify_phase_format_aware(r["over_number"], r["format"]), axis=1
     )
     
     batting_phase = phase_data.groupby(["batting_team", "format", "phase"]).agg(
@@ -652,11 +686,10 @@ def compute_venue_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
         innings_number=("innings_number", "max"),
     ).reset_index()
     
-    # Phase scoring
+    # Phase scoring — format-aware
     phase_data = deliveries_df.copy()
-    phase_data["phase"] = np.where(
-        phase_data["over_number"] <= 6, "powerplay",
-        np.where(phase_data["over_number"] <= 15, "middle", "death")
+    phase_data["phase"] = phase_data.apply(
+        lambda r: _classify_phase_format_aware(r["over_number"], r["format"]), axis=1
     )
     
     venue_phase = phase_data.groupby(["venue", "format", "match_id", "phase"]).agg(

@@ -24,7 +24,7 @@ def _row_to_dict(row) -> dict:
 
 @router.get("/")
 async def get_rankings(
-    format: str = Query("T20I"),
+    format: str = Query("T20"),
     category: str = Query("batting", description="batting, bowling, allrounder"),
     limit: int = Query(25, ge=1, le=100),
     db: Session = Depends(get_db),

@@ -110,6 +110,7 @@ def _create_sqlite_schema(conn):
         canonical_name TEXT NOT NULL UNIQUE,
         short_name TEXT NOT NULL,
         country TEXT,
+        team_type TEXT DEFAULT 'franchise',
         is_active BOOLEAN DEFAULT 1,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -145,15 +146,38 @@ def _create_sqlite_schema(conn):
         name TEXT NOT NULL,
         short_name TEXT,
         format TEXT NOT NULL,
+        competition_type TEXT DEFAULT 'league',
         governing_body TEXT,
         season TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    
+    CREATE TABLE IF NOT EXISTS seasons (
+        id TEXT PRIMARY KEY,
+        competition_id TEXT NOT NULL REFERENCES competitions(id),
+        name TEXT NOT NULL,
+        start_date DATE,
+        end_date DATE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    
+    CREATE TABLE IF NOT EXISTS format_config (
+        id TEXT PRIMARY KEY,
+        format TEXT NOT NULL UNIQUE,
+        standard_overs INTEGER,
+        powerplay_end INTEGER,
+        middle_end INTEGER,
+        max_innings INTEGER DEFAULT 2,
+        is_multi_day BOOLEAN DEFAULT 0,
+        is_first_class BOOLEAN DEFAULT 0,
+        description TEXT
     );
     
     CREATE TABLE IF NOT EXISTS matches (
         id TEXT PRIMARY KEY,
         external_id TEXT UNIQUE,
         competition_id TEXT REFERENCES competitions(id),
+        season_id TEXT REFERENCES seasons(id),
         venue_id TEXT REFERENCES venues(id),
         match_date DATE NOT NULL,
         format TEXT NOT NULL,
@@ -164,9 +188,12 @@ def _create_sqlite_schema(conn):
         winner_id TEXT REFERENCES teams(id),
         win_margin INTEGER,
         win_type TEXT,
+        result_type TEXT DEFAULT 'win',
         player_of_match_id TEXT REFERENCES players(id),
         total_innings INTEGER,
         total_deliveries INTEGER,
+        day_number INTEGER,
+        event_match_number INTEGER,
         is_live BOOLEAN DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -187,6 +214,9 @@ def _create_sqlite_schema(conn):
         extras_penalty INTEGER DEFAULT 0,
         total_extras INTEGER DEFAULT 0,
         run_rate REAL,
+        declared BOOLEAN DEFAULT 0,
+        all_out BOOLEAN DEFAULT 0,
+        follow_on BOOLEAN DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(match_id, innings_number)
     );

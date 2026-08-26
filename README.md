@@ -928,9 +928,43 @@ The `db_manager.py` auto-detects the dialect from the `DATABASE_URL`.
 
 ### Known data artifacts
 
-- `data/raw/ipl/` — 1,244 extracted IPL match JSON files (~5 MB)
-- `data/cricket_intelligence.db` — SQLite database with 200 processed matches (16 MB)
+- `data/raw/ipl/` — 1,243 extracted IPL match JSON files (~5 MB)
+- `data/cricket_intelligence.db` — SQLite database with all 1,243 IPL matches processed (local dev copy)
+- Supabase PostgreSQL — Production database with the same 1,243 matches (migrated via `migrate_sqlite_to_pg.py`)
 - `.env` — Contains DATABASE_URL for Supabase PostgreSQL (gitignored)
+
+---
+
+## Phase 1 Status
+
+Phase 1 (Universal Cricket Data Model) has been completed. The platform now supports a format-agnostic data model capable of representing T20, T20I, ODI, and Test cricket.
+
+### What was added
+
+| Feature | Status |
+|---------|--------|
+| Format-aware phase definitions (PP/middle/death) | ✅ Complete |
+| `format_config` table with T20/T20I/ODI/Test rules | ✅ Complete |
+| `seasons` table for season/edition modeling | ✅ Complete |
+| Test match support (declared/all_out/follow_on) | ✅ Complete |
+| Match result types (draw/tie/no_result/abandoned) | ✅ Complete |
+| Cross-format test fixtures (T20I, ODI, Test, Test draw) | ✅ Complete |
+| Competitions API (`/api/competitions`) | ✅ Complete |
+| Non-destructive PostgreSQL migration | ✅ Complete |
+| 60/60 tests passing (29 Phase 0 + 31 Phase 1) | ✅ Complete |
+| IPL data regression verified (1,243 matches intact) | ✅ Complete |
+
+### Not yet implemented (Phase 2+)
+
+- International data ingestion (T20I, ODI, Test from Cricsheet)
+- Season data population from Cricsheet metadata
+- Frontend format/competition/season filters
+- TeamDetail and VenueDetail live API wiring
+- Test cricket-specific analytics
+- Win probability model
+- Player impact metric
+
+See `docs/phase-1.md` for full details.
 
 ---
 

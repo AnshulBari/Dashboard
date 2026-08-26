@@ -1,52 +1,49 @@
+import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { ArrowLeft, TrendingUp, Target, MapPin, Swords } from 'lucide-react'
+import { ArrowLeft, TrendingUp, Target } from 'lucide-react'
+import { playerApi } from '../services/api'
 
-const mockPlayer = {
-  name: 'Suryakumar Yadav',
-  fullName: 'Suryakumar Ashok Yadav',
-  role: 'Batsman',
-  country: 'India',
-  battingStyle: 'Right-hand bat',
-  formScore: 89.2,
-  battingRating: 92.1,
-  consistency: 76.5,
-  career: {
-    matches: 68,
-    innings: 65,
-    runs: 1842,
-    average: 35.42,
-    strikeRate: 147.5,
-    highestScore: 117,
-    fours: 155,
-    sixes: 85,
-    fifties: 12,
-    hundreds: 2,
-    notOuts: 13,
-    ballsFaced: 1249,
-  },
-  phases: {
-    powerplay: { balls: 245, runs: 348, strikeRate: 142.0, avg: 38.7 },
-    middle: { balls: 480, runs: 672, strikeRate: 140.0, avg: 37.3 },
-    death: { balls: 524, runs: 822, strikeRate: 156.9, avg: 41.1 },
-  },
-  recentForm: [
-    { match: 'vs AUS', runs: 80, sr: 152.3, isOut: false },
-    { match: 'vs ENG', runs: 45, sr: 138.5, isOut: true },
-    { match: 'vs SA', runs: 92, sr: 161.4, isOut: false },
-    { match: 'vs WI', runs: 112, sr: 172.3, isOut: false },
-    { match: 'vs NZ', runs: 28, sr: 116.7, isOut: true },
-    { match: 'vs PAK', runs: 67, sr: 144.6, isOut: true },
-    { match: 'vs BAN', runs: 55, sr: 137.5, isOut: true },
-    { match: 'vs SL', runs: 78, sr: 155.2, isOut: false },
-  ],
-  formComponents: {
-    recentPerformance: { score: 92, weight: 0.35 },
-    consistency: { score: 78, weight: 0.20 },
-    oppositionStrength: { score: 85, weight: 0.15 },
-    venuePerformance: { score: 82, weight: 0.10 },
-    matchSituation: { score: 75, weight: 0.10 },
-    efficiency: { score: 90, weight: 0.10 },
-  },
+interface PlayerData {
+  id: string
+  name: string
+  full_name: string | null
+  role: string | null
+  country: string | null
+  team_name: string | null
+  batting_style: string | null
+  bowling_style: string | null
+  form_score: number | null
+  matches: number | null
+  innings: number | null
+  runs: number | null
+  batting_average: number | null
+  strike_rate: number | null
+  highest_score: number | null
+  fours: number | null
+  sixes: number | null
+  fifties: number | null
+  hundreds: number | null
+  balls_faced: number | null
+  not_outs: number | null
+  boundary_pct: number | null
+  dot_ball_pct: number | null
+  powerplay_runs: number | null
+  powerplay_strike_rate: number | null
+  middle_runs: number | null
+  middle_strike_rate: number | null
+  death_runs: number | null
+  death_strike_rate: number | null
+  bowling?: {
+    matches: number | null
+    innings: number | null
+    overs: number | null
+    wickets: number | null
+    runs_conceded: number | null
+    bowling_average: number | null
+    strike_rate: number | null
+    economy: number | null
+    dot_ball_pct: number | null
+  } | null
 }
 
 function StatBox({ label, value, subtitle }: { label: string; value: string | number; subtitle?: string }) {
@@ -59,30 +56,43 @@ function StatBox({ label, value, subtitle }: { label: string; value: string | nu
   )
 }
 
-function FormComponentBar({ name, score, weight }: { name: string; score: number; weight: number }) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="w-36 text-xs text-gray-600 truncate">{name}</div>
-      <div className="flex-1 h-2 bg-surface-100 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-brand-500 rounded-full transition-all"
-          style={{ width: `${score}%` }}
-        />
-      </div>
-      <div className="w-10 text-right">
-        <span className="text-xs font-bold text-gray-900">{score}</span>
-        <span className="text-xs text-gray-400 ml-0.5">×{(weight * 100).toFixed(0)}%</span>
-      </div>
-    </div>
-  )
-}
-
 export default function PlayerDetail() {
-  const { id: _id } = useParams()
-  
-  // In production, this would fetch from the API using the id
-  const player = mockPlayer
+  const { id } = useParams()
+  const [player, setPlayer] = useState<PlayerData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
+  useEffect(() => {
+    if (!id) return
+    async function load() {
+      try {
+        const data = await playerApi.get(id!) as PlayerData
+        setPlayer(data)
+      } catch (err) {
+        setError('Failed to load player data')
+        console.error(err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [id])
+
+  if (loading) {
+    return (
+      <div className="text-center py-12 text-gray-500">Loading player...</div>
+    )
+  }
+
+  if (error || !player) {
+    return (
+      <div className="text-center py-12 text-gray-500">{error || 'Player not found'}</div>
+    )
+  }
+
+  const battingAvg = player.batting_average ?? 0
+  const strikeRate = player.strike_rate ?? 0
+  const formScore = player.form_score ?? 0
   return (
     <div>
       {/* Back button */}
@@ -99,103 +109,54 @@ export default function PlayerDetail() {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">{player.name}</h1>
-            <p className="text-sm text-gray-500 mt-1">{player.fullName}</p>
+            {player.full_name && player.full_name !== player.name && (
+              <p className="text-sm text-gray-500 mt-1">{player.full_name}</p>
+            )}
             <div className="flex items-center gap-3 mt-2">
-              <span className="badge-blue">{player.role}</span>
-              <span className="badge-green">{player.country}</span>
-              <span className="text-xs text-gray-400">{player.battingStyle}</span>
+              <span className="badge-blue">{player.role || 'Unknown'}</span>
+              {player.team_name && <span className="badge-green">{player.team_name}</span>}
+              {player.batting_style && <span className="text-xs text-gray-400">{player.batting_style}</span>}
             </div>
           </div>
           <div className="flex items-center gap-6">
             <div className="text-center">
               <div className="w-20 h-20 rounded-full bg-brand-50 border-4 border-brand-500 flex items-center justify-center">
-                <span className="text-2xl font-bold text-brand-700">{player.formScore}</span>
+                <span className="text-2xl font-bold text-brand-700">{formScore.toFixed(1)}</span>
               </div>
               <p className="text-xs font-medium text-gray-500 mt-2">Form Score</p>
             </div>
             <div className="text-center">
               <div className="w-16 h-16 rounded-full bg-surface-50 border-2 border-surface-300 flex items-center justify-center">
-                <span className="text-xl font-bold text-gray-700">{player.battingRating}</span>
+                <span className="text-xl font-bold text-gray-700">{battingAvg.toFixed(1)}</span>
               </div>
-              <p className="text-xs font-medium text-gray-500 mt-2">Rating</p>
+              <p className="text-xs font-medium text-gray-500 mt-2">Average</p>
             </div>
             <div className="text-center">
               <div className="w-16 h-16 rounded-full bg-surface-50 border-2 border-surface-300 flex items-center justify-center">
-                <span className="text-xl font-bold text-gray-700">{player.consistency}</span>
+                <span className="text-xl font-bold text-gray-700">{strikeRate.toFixed(1)}</span>
               </div>
-              <p className="text-xs font-medium text-gray-500 mt-2">Consistency</p>
+              <p className="text-xs font-medium text-gray-500 mt-2">Strike Rate</p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Form Score Breakdown */}
+      {/* Career Batting Stats */}
       <div className="card p-6 mb-6">
-        <div className="flex items-center gap-2 mb-4">
-          <TrendingUp className="h-5 w-5 text-brand-600" />
-          <h2 className="text-lg font-semibold text-gray-900">Form Score Breakdown</h2>
-        </div>
-        <div className="space-y-3">
-          {Object.entries(player.formComponents).map(([key, component]) => {
-            const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())
-            return (
-              <FormComponentBar
-                key={key}
-                name={label}
-                score={component.score}
-                weight={component.weight}
-              />
-            )
-          })}
-        </div>
-        <p className="text-xs text-gray-400 mt-4">
-          Form Score = Σ(component_score × weight). Each component is normalized 0-100 using min-max scaling across all players.
-        </p>
-      </div>
-
-      {/* Career Stats */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <div className="card p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Career Batting</h2>
-          <div className="grid grid-cols-4 gap-3">
-            <StatBox label="Matches" value={player.career.matches} />
-            <StatBox label="Innings" value={player.career.innings} />
-            <StatBox label="Runs" value={player.career.runs.toLocaleString()} />
-            <StatBox label="Average" value={player.career.average} />
-            <StatBox label="Strike Rate" value={player.career.strikeRate} />
-            <StatBox label="Highest" value={player.career.highestScore} />
-            <StatBox label="Fours" value={player.career.fours} />
-            <StatBox label="Sixes" value={player.career.sixes} />
-            <StatBox label="50s" value={player.career.fifties} />
-            <StatBox label="100s" value={player.career.hundreds} />
-            <StatBox label="4s %" value={`${((player.career.fours * 4 / player.career.runs) * 100).toFixed(1)}%`} />
-            <StatBox label="6s %" value={`${((player.career.sixes * 6 / player.career.runs) * 100).toFixed(1)}%`} />
-          </div>
-        </div>
-
-        <div className="card p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Recent Form</h2>
-          <div className="space-y-2">
-            {player.recentForm.map((match, idx) => (
-              <div key={idx} className="flex items-center gap-3 p-2 rounded-lg hover:bg-surface-50">
-                <span className="text-sm text-gray-500 w-16">{match.match}</span>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <div className="h-2 flex-1 bg-surface-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${match.isOut ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                        style={{ width: `${Math.min(match.runs / 1.2, 100)}%` }}
-                      />
-                    </div>
-                    <span className="text-sm font-bold text-gray-900 w-10 text-right">
-                      {match.runs}{match.isOut ? '' : '*'}
-                    </span>
-                    <span className="text-xs text-gray-400 w-14 text-right">SR {match.sr}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Career Batting</h2>
+        <div className="grid grid-cols-4 md:grid-cols-6 gap-3">
+          <StatBox label="Matches" value={player.matches ?? '-'} />
+          <StatBox label="Innings" value={player.innings ?? '-'} />
+          <StatBox label="Runs" value={(player.runs ?? 0).toLocaleString()} />
+          <StatBox label="Average" value={player.batting_average?.toFixed(1) ?? '-'} />
+          <StatBox label="Strike Rate" value={player.strike_rate?.toFixed(1) ?? '-'} />
+          <StatBox label="Highest" value={player.highest_score ?? '-'} />
+          <StatBox label="Fours" value={player.fours ?? '-'} />
+          <StatBox label="Sixes" value={player.sixes ?? '-'} />
+          <StatBox label="50s" value={player.fifties ?? '-'} />
+          <StatBox label="100s" value={player.hundreds ?? '-'} />
+          <StatBox label="Boundary %" value={player.boundary_pct != null ? `${player.boundary_pct.toFixed(1)}%` : '-'} />
+          <StatBox label="Dot Ball %" value={player.dot_ball_pct != null ? `${player.dot_ball_pct.toFixed(1)}%` : '-'} />
         </div>
       </div>
 
@@ -206,25 +167,21 @@ export default function PlayerDetail() {
           <h2 className="text-lg font-semibold text-gray-900">Phase Performance</h2>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {Object.entries(player.phases).map(([phase, stats]) => (
-            <div key={phase} className="p-4 rounded-lg bg-surface-50 border border-surface-200">
-              <h3 className="text-sm font-semibold text-gray-700 capitalize mb-3">{phase}</h3>
+          {[
+            { name: 'Powerplay', runs: player.powerplay_runs, sr: player.powerplay_strike_rate },
+            { name: 'Middle Overs', runs: player.middle_runs, sr: player.middle_strike_rate },
+            { name: 'Death Overs', runs: player.death_runs, sr: player.death_strike_rate },
+          ].map((phase) => (
+            <div key={phase.name} className="p-4 rounded-lg bg-surface-50 border border-surface-200">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">{phase.name}</h3>
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <p className="text-xs text-gray-500">Runs</p>
-                  <p className="text-sm font-bold text-gray-900">{stats.runs}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Balls</p>
-                  <p className="text-sm font-bold text-gray-900">{stats.balls}</p>
+                  <p className="text-sm font-bold text-gray-900">{phase.runs ?? '-'}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Strike Rate</p>
-                  <p className="text-sm font-bold text-gray-900">{stats.strikeRate}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Average</p>
-                  <p className="text-sm font-bold text-gray-900">{stats.avg}</p>
+                  <p className="text-sm font-bold text-gray-900">{phase.sr?.toFixed(1) ?? '-'}</p>
                 </div>
               </div>
             </div>
@@ -232,22 +189,41 @@ export default function PlayerDetail() {
         </div>
       </div>
 
-      {/* Placeholder sections for future features */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="card p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <MapPin className="h-5 w-5 text-brand-600" />
-            <h2 className="text-lg font-semibold text-gray-900">Performance by Venue</h2>
+      {/* Bowling Stats (if applicable) */}
+      {player.bowling && (
+        <div className="card p-6 mb-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Career Bowling</h2>
+          <div className="grid grid-cols-4 md:grid-cols-5 gap-3">
+            <StatBox label="Matches" value={player.bowling.matches ?? '-'} />
+            <StatBox label="Wickets" value={player.bowling.wickets ?? '-'} />
+            <StatBox label="Average" value={player.bowling.bowling_average?.toFixed(1) ?? '-'} />
+            <StatBox label="Economy" value={player.bowling.economy?.toFixed(2) ?? '-'} />
+            <StatBox label="Strike Rate" value={player.bowling.strike_rate?.toFixed(1) ?? '-'} />
           </div>
-          <p className="text-sm text-gray-500">Venue-wise performance breakdown will be displayed here.</p>
         </div>
+      )}
 
-        <div className="card p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Swords className="h-5 w-5 text-brand-600" />
-            <h2 className="text-lg font-semibold text-gray-900">Matchups</h2>
+      {/* Form Score Explanation */}
+      <div className="card p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <TrendingUp className="h-5 w-5 text-brand-600" />
+          <h2 className="text-lg font-semibold text-gray-900">Form Score</h2>
+        </div>
+        <p className="text-sm text-gray-600 mb-3">
+          The Form Score is a weighted composite metric (0-100) based on recent performance, consistency,
+          opposition strength, venue performance, match situation, and efficiency.
+        </p>
+        <div className="flex items-center gap-4">
+          <div className="text-center">
+            <div className="w-16 h-16 rounded-full bg-brand-50 border-4 border-brand-500 flex items-center justify-center">
+              <span className="text-xl font-bold text-brand-700">{formScore.toFixed(1)}</span>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">Overall</p>
           </div>
-          <p className="text-sm text-gray-500">Head-to-head matchup data will be displayed here.</p>
+          <div className="text-sm text-gray-500">
+            Weighted across: Recent Performance (35%), Consistency (20%), Opposition Strength (15%),
+            Venue Performance (10%), Match Situation (10%), Efficiency (10%)
+          </div>
         </div>
       </div>
     </div>

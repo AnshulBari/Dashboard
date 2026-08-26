@@ -126,6 +126,13 @@ export const matchApi = {
 // ============================================================
 
 export const matchupApi = {
+  list: (params?: { format?: string; limit?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.format) query.set('format', params.format)
+    if (params?.limit) query.set('limit', String(params.limit))
+    return fetchJson(`/matchups?${query}`)
+  },
+
   get: (batterId: string, bowlerId: string, format?: string) => {
     const query = format ? `?format=${format}` : ''
     return fetchJson(`/matchups/${batterId}/${bowlerId}${query}`)

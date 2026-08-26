@@ -1,19 +1,20 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Search, Filter, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { playerApi } from '../services/api'
 
-const samplePlayers = [
-  { id: '1', name: 'Suryakumar Yadav', country: 'India', role: 'batsman', formScore: 89.2, battingAvg: 35.8, strikeRate: 148.5, careerRuns: 1543, careerWickets: 0 },
-  { id: '2', name: 'Jos Buttler', country: 'England', role: 'wicketkeeper', formScore: 84.7, battingAvg: 32.5, strikeRate: 142.3, careerRuns: 1287, careerWickets: 0 },
-  { id: '3', name: 'Babar Azam', country: 'Pakistan', role: 'batsman', formScore: 82.1, battingAvg: 42.3, strikeRate: 128.7, careerRuns: 1654, careerWickets: 0 },
-  { id: '4', name: 'Virat Kohli', country: 'India', role: 'batsman', formScore: 79.8, battingAvg: 48.2, strikeRate: 135.2, careerRuns: 1432, careerWickets: 0 },
-  { id: '5', name: 'Jasprit Bumrah', country: 'India', role: 'bowler', formScore: 85.3, battingAvg: 0, strikeRate: 0, careerRuns: 45, careerWickets: 72 },
-  { id: '6', name: 'Rashid Khan', country: 'Afghanistan', role: 'bowler', formScore: 81.5, battingAvg: 12.5, strikeRate: 155.0, careerRuns: 234, careerWickets: 98 },
-  { id: '7', name: 'David Warner', country: 'Australia', role: 'batsman', formScore: 78.3, battingAvg: 38.9, strikeRate: 140.8, careerRuns: 1198, careerWickets: 0 },
-  { id: '8', name: 'Hardik Pandya', country: 'India', role: 'allrounder', formScore: 76.5, battingAvg: 28.5, strikeRate: 145.2, careerRuns: 654, careerWickets: 42 },
-  { id: '9', name: 'Kagiso Rabada', country: 'South Africa', role: 'bowler', formScore: 74.8, battingAvg: 8.2, strikeRate: 120.5, careerRuns: 123, careerWickets: 85 },
-  { id: '10', name: 'Quinton de Kock', country: 'South Africa', role: 'wicketkeeper', formScore: 72.1, battingAvg: 31.2, strikeRate: 138.5, careerRuns: 1087, careerWickets: 0 },
-]
+interface PlayerRow {
+  id: string
+  name: string
+  role: string | null
+  country: string | null
+  team_name: string | null
+  form_score: number | null
+  batting_average: number | null
+  strike_rate: number | null
+  career_runs: number | null
+  career_wickets: number | null
+}
 
 const roleColors: Record<string, string> = {
   batsman: 'bg-blue-100 text-blue-800',
@@ -41,11 +42,27 @@ function FormScoreBar({ score }: { score: number }) {
 export default function Players() {
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<string>('all')
+  const [players, setPlayers] = useState<PlayerRow[]>([])
+  const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
 
-  const filteredPlayers = samplePlayers.filter(p => {
-    const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.country.toLowerCase().includes(search.toLowerCase())
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await playerApi.list({ format: 'T20', sortBy: 'form_score', limit: 100 }) as { players: PlayerRow[] }
+        setPlayers(res.players || [])
+      } catch (err) {
+        console.error('Failed to load players:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [])
+
+  const filteredPlayers = players.filter(p => {
+    const matchesSearch = (p.name || '').toLowerCase().includes(search.toLowerCase()) ||
+      (p.country || '').toLowerCase().includes(search.toLowerCase())
     const matchesRole = roleFilter === 'all' || p.role === roleFilter
     return matchesSearch && matchesRole
   })
@@ -89,72 +106,60 @@ export default function Players() {
         </div>
       </div>
 
-      {/* Player Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredPlayers.map((player) => (
-          <div
-            key={player.id}
-            onClick={() => navigate(`/players/${player.id}`)}
-            className="card-hover p-5 cursor-pointer"
-          >
-            <div className="flex items-start justify-between">
-              <div>
-                <h3 className="text-base font-semibold text-gray-900">{player.name}</h3>
-                <p className="text-sm text-gray-500">{player.country}</p>
-              </div>
-              <span className={`badge ${roleColors[player.role]}`}>
-                {player.role}
-              </span>
-            </div>
-            
-            <div className="mt-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">Form Score</span>
-                <FormScoreBar score={player.formScore} />
+      {loading ? (
+        <div className="text-center py-12 text-gray-500">Loading players...</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredPlayers.map((player) => (
+            <div
+              key={player.id}
+              onClick={() => navigate(`/players/${player.id}`)}
+              className="card-hover p-5 cursor-pointer"
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="text-base font-semibold text-gray-900">{player.name}</h3>
+                  <p className="text-sm text-gray-500">{player.team_name || player.country || 'Unknown'}</p>
+                </div>
+                <span className={`badge ${roleColors[player.role || 'batsman']}`}>
+                  {player.role || 'batsman'}
+                </span>
               </div>
               
-              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-surface-100">
-                {player.role === 'bowler' ? (
-                  <>
-                    <div>
-                      <p className="text-xs text-gray-500">Wickets</p>
-                      <p className="text-sm font-bold text-gray-900">{player.careerWickets}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">Avg</p>
-                      <p className="text-sm font-bold text-gray-900">{player.battingAvg}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">SR</p>
-                      <p className="text-sm font-bold text-gray-900">{player.strikeRate}</p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div>
-                      <p className="text-xs text-gray-500">Runs</p>
-                      <p className="text-sm font-bold text-gray-900">{player.careerRuns.toLocaleString()}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">Avg</p>
-                      <p className="text-sm font-bold text-gray-900">{player.battingAvg}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">SR</p>
-                      <p className="text-sm font-bold text-gray-900">{player.strikeRate}</p>
-                    </div>
-                  </>
-                )}
+              <div className="mt-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500">Form Score</span>
+                  {player.form_score != null ? (
+                    <FormScoreBar score={player.form_score} />
+                  ) : (
+                    <span className="text-xs text-gray-400">N/A</span>
+                  )}
+                </div>
+                
+                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-surface-100">
+                  <div>
+                    <p className="text-xs text-gray-500">Runs</p>
+                    <p className="text-sm font-bold text-gray-900">{player.career_runs?.toLocaleString() || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Avg</p>
+                    <p className="text-sm font-bold text-gray-900">{player.batting_average?.toFixed(1) || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">SR</p>
+                    <p className="text-sm font-bold text-gray-900">{player.strike_rate?.toFixed(1) || '-'}</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="mt-4 flex items-center text-brand-600 text-xs font-medium">
+                View Intelligence
+                <ChevronRight className="h-3 w-3 ml-1" />
               </div>
             </div>
-            
-            <div className="mt-4 flex items-center text-brand-600 text-xs font-medium">
-              View Intelligence
-              <ChevronRight className="h-3 w-3 ml-1" />
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

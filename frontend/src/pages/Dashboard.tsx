@@ -107,9 +107,9 @@ export default function Dashboard() {
     load()
   }, [])
 
-  const totalPlayers = players.length || 261
-  const totalTeams = teams.length || 11
-  const totalVenues = venues.length || 20
+  const totalPlayers = players.length
+  const totalTeams = teams.length
+  const totalVenues = venues.length
 
   return (
     <div>
@@ -137,8 +137,8 @@ export default function Dashboard() {
         />
         <StatCard
           label="Matches Analyzed"
-          value="200+"
-          change="Cricsheet IPL data"
+          value={matches.length}
+          change="IPL matches"
           icon={Trophy}
           color="bg-amber-500"
         />
@@ -311,7 +311,7 @@ export default function Dashboard() {
           <a href="https://cricsheet.org" target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline">
             Cricsheet
           </a>
-          {' '}— Men's IPL matches (2008-2017). Coverage depends on Cricsheet data availability.
+          {' '}— Men's IPL matches (all available seasons). Coverage depends on Cricsheet data availability.
         </p>
       </div>
     </div>

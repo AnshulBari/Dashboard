@@ -4,6 +4,13 @@ SQLAlchemy ORM Models
 
 Defines database models matching the PostgreSQL schema.
 These are used by the backend to query precomputed analytical data.
+
+Updated for Phase 1: Universal Cricket Data Model
+- Added seasons, format_config tables
+- Added result_type, day_number, event_match_number to Match
+- Added declared, all_out, follow_on to Innings
+- Added team_type to Team
+- Added competition_type to Competition
 """
 
 import uuid
@@ -24,6 +31,7 @@ class Team(Base):
     canonical_name = Column(String(100), nullable=False, unique=True)
     short_name = Column(String(20), nullable=False)
     country = Column(String(100))
+    team_type = Column(String(50), default="franchise")  # 'national', 'franchise', 'domestic'
     icc_id = Column(String(50))
     aliases = Column(ARRAY(Text))
     is_active = Column(Boolean, default=True)
@@ -72,11 +80,46 @@ class Competition(Base):
     name = Column(String(200), nullable=False)
     short_name = Column(String(50))
     format = Column(String(20), nullable=False)
+    competition_type = Column(String(50), default="league")  # 'league', 'tournament', 'bilateral', 'test_series'
     governing_body = Column(String(100))
     season = Column(String(20))
     aliases = Column(ARRAY(Text))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Season(Base):
+    """Represents a specific season/edition of a competition."""
+    __tablename__ = "seasons"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    competition_id = Column(UUID(as_uuid=True), ForeignKey("competitions.id"), nullable=False)
+    name = Column(String(50), nullable=False)  # '2024', '2023-24', '2023'
+    start_date = Column(Date)
+    end_date = Column(Date)
+    aliases = Column(ARRAY(Text))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        UniqueConstraint("competition_id", "name"),
+    )
+
+
+class FormatConfig(Base):
+    """Format-specific configuration for analytics."""
+    __tablename__ = "format_config"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    format = Column(String(20), nullable=False, unique=True)
+    standard_overs = Column(Integer)
+    powerplay_end = Column(Integer)  # Last over of powerplay (0-indexed)
+    middle_end = Column(Integer)  # Last over of middle phase (0-indexed)
+    max_innings = Column(Integer, default=2)
+    is_multi_day = Column(Boolean, default=False)
+    is_first_class = Column(Boolean, default=False)
+    description = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class Match(Base):
@@ -85,29 +128,72 @@ class Match(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     external_id = Column(String(100), unique=True)
     competition_id = Column(UUID(as_uuid=True), ForeignKey("competitions.id"))
+    season_id = Column(UUID(as_uuid=True), ForeignKey("seasons.id"))
     venue_id = Column(UUID(as_uuid=True), ForeignKey("venues.id"))
     match_date = Column(Date, nullable=False)
     format = Column(String(20), nullable=False)
+
     team_a_id = Column(UUID(as_uuid=True), ForeignKey("teams.id"))
     team_b_id = Column(UUID(as_uuid=True), ForeignKey("teams.id"))
+
     toss_winner_id = Column(UUID(as_uuid=True), ForeignKey("teams.id"))
     toss_decision = Column(String(20))
+
     winner_id = Column(UUID(as_uuid=True), ForeignKey("teams.id"))
     win_margin = Column(Integer)
     win_type = Column(String(30))
+    result_type = Column(String(30), default="win")  # 'win', 'tie', 'draw', 'no_result', 'abandoned'
+
     player_of_match_id = Column(UUID(as_uuid=True), ForeignKey("players.id"))
+
     total_innings = Column(Integer)
     total_deliveries = Column(Integer)
+
+    day_number = Column(Integer)  # For multi-day matches
+    event_match_number = Column(Integer)  # Match number within event/series
+
     is_live = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Innings(Base):
+    __tablename__ = "innings"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    match_id = Column(UUID(as_uuid=True), ForeignKey("matches.id", ondelete="CASCADE"), nullable=False)
+    innings_number = Column(Integer, nullable=False)
+    batting_team_id = Column(UUID(as_uuid=True), ForeignKey("teams.id"), nullable=False)
+    bowling_team_id = Column(UUID(as_uuid=True), ForeignKey("teams.id"), nullable=False)
+
+    total_runs = Column(Integer, default=0)
+    total_wickets = Column(Integer, default=0)
+    total_overs = Column(Float, default=0)
+
+    extras_wides = Column(Integer, default=0)
+    extras_noballs = Column(Integer, default=0)
+    extras_byes = Column(Integer, default=0)
+    extras_legbyes = Column(Integer, default=0)
+    extras_penalty = Column(Integer, default=0)
+    total_extras = Column(Integer, default=0)
+    run_rate = Column(Float)
+
+    declared = Column(Boolean, default=False)
+    all_out = Column(Boolean, default=False)
+    follow_on = Column(Boolean, default=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("match_id", "innings_number"),
+    )
 
 
 class PlayerBattingStats(Base):
     __tablename__ = "player_batting_stats"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    player_id = Column(UUID(as_uuid=True), ForeignKey("players.id"), nullable=False)
+    player_id = Column(UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
     format = Column(String(20), nullable=False)
     period = Column(String(20), nullable=False)
     
@@ -119,10 +205,12 @@ class PlayerBattingStats(Base):
     batting_average = Column(Float)
     strike_rate = Column(Float)
     balls_faced = Column(Integer, default=0)
+    
     fours = Column(Integer, default=0)
     sixes = Column(Integer, default=0)
     boundary_pct = Column(Float)
     dot_ball_pct = Column(Float)
+    
     fifties = Column(Integer, default=0)
     hundreds = Column(Integer, default=0)
     
@@ -135,7 +223,6 @@ class PlayerBattingStats(Base):
     
     chasing_runs = Column(Integer, default=0)
     chasing_strike_rate = Column(Float)
-    chasing_average = Column(Float)
     first_innings_runs = Column(Integer, default=0)
     first_innings_strike_rate = Column(Float)
     
@@ -152,7 +239,7 @@ class PlayerBowlingStats(Base):
     __tablename__ = "player_bowling_stats"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    player_id = Column(UUID(as_uuid=True), ForeignKey("players.id"), nullable=False)
+    player_id = Column(UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
     format = Column(String(20), nullable=False)
     period = Column(String(20), nullable=False)
     
@@ -174,7 +261,6 @@ class PlayerBowlingStats(Base):
     dot_ball_pct = Column(Float)
     boundary_conceded_pct = Column(Float)
     
-    # Phase-specific bowling
     powerplay_overs = Column(Float, default=0)
     powerplay_wickets = Column(Integer, default=0)
     powerplay_economy = Column(Float)
@@ -198,7 +284,7 @@ class PlayerForm(Base):
     __tablename__ = "player_form"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    player_id = Column(UUID(as_uuid=True), ForeignKey("players.id"), nullable=False)
+    player_id = Column(UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
     format = Column(String(20), nullable=False)
     
     form_score = Column(Float, nullable=False)
@@ -221,7 +307,7 @@ class TeamPerformance(Base):
     __tablename__ = "team_performance"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    team_id = Column(UUID(as_uuid=True), ForeignKey("teams.id"), nullable=False)
+    team_id = Column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False)
     format = Column(String(20), nullable=False)
     period = Column(String(20), nullable=False)
     
@@ -259,7 +345,7 @@ class VenueStats(Base):
     __tablename__ = "venue_stats"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    venue_id = Column(UUID(as_uuid=True), ForeignKey("venues.id"), nullable=False)
+    venue_id = Column(UUID(as_uuid=True), ForeignKey("venues.id", ondelete="CASCADE"), nullable=False)
     format = Column(String(20), nullable=False)
     
     total_matches = Column(Integer, default=0)
@@ -299,8 +385,8 @@ class BatterBowlerMatchup(Base):
     __tablename__ = "batter_bowler_matchups"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    batter_id = Column(UUID(as_uuid=True), ForeignKey("players.id"), nullable=False)
-    bowler_id = Column(UUID(as_uuid=True), ForeignKey("players.id"), nullable=False)
+    batter_id = Column(UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
+    bowler_id = Column(UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
     format = Column(String(20), nullable=False)
     
     total_balls = Column(Integer, default=0)

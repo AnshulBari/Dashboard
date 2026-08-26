@@ -27,6 +27,7 @@ CREATE TABLE teams (
     canonical_name VARCHAR(100) NOT NULL UNIQUE,
     short_name VARCHAR(20) NOT NULL,
     country VARCHAR(100),
+    team_type VARCHAR(50) DEFAULT 'franchise',  -- 'national', 'franchise', 'domestic'
     icc_id VARCHAR(50),           -- ICC official identifier (future use)
     aliases TEXT[],               -- alternative names for matching (future use)
     is_active BOOLEAN DEFAULT TRUE,
@@ -69,12 +70,48 @@ CREATE TABLE competitions (
     name VARCHAR(200) NOT NULL,
     short_name VARCHAR(50),
     format VARCHAR(20) NOT NULL,  -- 'T20I', 'ODI', 'Test', 'T20', 'T10'
+    competition_type VARCHAR(50) DEFAULT 'league',  -- 'league', 'tournament', 'bilateral', 'test_series'
     governing_body VARCHAR(100),
     season VARCHAR(20),           -- '2023-24', '2024'
     aliases TEXT[],
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Season/Edition table (Phase 1: universal model)
+CREATE TABLE seasons (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    competition_id UUID NOT NULL REFERENCES competitions(id),
+    name VARCHAR(50) NOT NULL,
+    start_date DATE,
+    end_date DATE,
+    aliases TEXT[],
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(competition_id, name)
+);
+
+-- Format-specific configuration (Phase 1: universal model)
+CREATE TABLE format_config (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    format VARCHAR(20) NOT NULL UNIQUE,
+    standard_overs INTEGER,
+    powerplay_end INTEGER,       -- Last over of powerplay (0-indexed)
+    middle_end INTEGER,          -- Last over of middle phase (0-indexed)
+    max_innings INTEGER DEFAULT 2,
+    is_multi_day BOOLEAN DEFAULT FALSE,
+    is_first_class BOOLEAN DEFAULT FALSE,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Seed format configurations
+INSERT INTO format_config (format, standard_overs, powerplay_end, middle_end, max_innings, is_multi_day, is_first_class, description) VALUES
+    ('T20', 20, 6, 15, 2, FALSE, FALSE, 'T20 franchise cricket (IPL, BBL, etc.)'),
+    ('T20I', 20, 6, 15, 2, FALSE, FALSE, 'International T20 cricket'),
+    ('ODI', 50, 10, 40, 2, FALSE, FALSE, 'One Day International cricket'),
+    ('Test', 90, 0, 0, 4, TRUE, TRUE, 'Test cricket (up to 5 days)')
+ON CONFLICT (format) DO NOTHING;
 
 -- ============================================================
 -- MATCH DATA
@@ -84,6 +121,7 @@ CREATE TABLE matches (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     external_id VARCHAR(100) UNIQUE,  -- Cricsheet match ID
     competition_id UUID REFERENCES competitions(id),
+    season_id UUID REFERENCES seasons(id),  -- Phase 1: link to season
     venue_id UUID REFERENCES venues(id),
     match_date DATE NOT NULL,
     format VARCHAR(20) NOT NULL,
@@ -96,12 +134,16 @@ CREATE TABLE matches (
 
     winner_id UUID REFERENCES teams(id),
     win_margin INTEGER,
-    win_type VARCHAR(30),         -- 'runs', 'wickets', 'DLS', 'tie', 'no_result'
+    win_type VARCHAR(30),         -- 'runs', 'wickets', 'innings', 'DLS'
+    result_type VARCHAR(30) DEFAULT 'win',  -- 'win', 'tie', 'draw', 'no_result', 'abandoned'
 
     player_of_match_id UUID REFERENCES players(id),
 
     total_innings INTEGER,        -- 2, 3, or 4
     total_deliveries INTEGER,
+
+    day_number INTEGER,           -- For multi-day matches
+    event_match_number INTEGER,   -- Match number within event/series
 
     is_live BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT NOW(),
@@ -128,6 +170,11 @@ CREATE TABLE innings (
     total_extras INTEGER DEFAULT 0,
 
     run_rate DECIMAL(6,2),
+
+    -- Phase 1: Test cricket support
+    declared BOOLEAN DEFAULT FALSE,
+    all_out BOOLEAN DEFAULT FALSE,
+    follow_on BOOLEAN DEFAULT FALSE,
 
     created_at TIMESTAMP DEFAULT NOW(),
 
@@ -656,3 +703,13 @@ CREATE INDEX idx_delivery_bowler ON deliveries(bowler_id);
 
 CREATE INDEX idx_pform_score ON player_form(form_score DESC);
 CREATE INDEX idx_rankings_rating ON rankings(format, category, rating_points DESC);
+
+-- Phase 1: Universal model indexes
+CREATE INDEX IF NOT EXISTS idx_matches_result_type ON matches(result_type);
+CREATE INDEX IF NOT EXISTS idx_matches_season ON matches(season_id);
+CREATE INDEX IF NOT EXISTS idx_seasons_competition ON seasons(competition_id);
+CREATE INDEX IF NOT EXISTS idx_format_config_format ON format_config(format);
+CREATE INDEX IF NOT EXISTS idx_pbs_player_format ON player_batting_stats(player_id, format);
+CREATE INDEX IF NOT EXISTS idx_pws_player_format ON player_bowling_stats(player_id, format);
+CREATE INDEX IF NOT EXISTS idx_bbm_batter_format ON batter_bowler_matchups(batter_id, format);
+CREATE INDEX IF NOT EXISTS idx_bbm_bowler_format ON batter_bowler_matchups(bowler_id, format);

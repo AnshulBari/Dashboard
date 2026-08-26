@@ -52,6 +52,23 @@ def flatten_match(data: dict, filename: str = "") -> list[dict]:
     win_by = outcome.get("by", {})
     player_of_match = (info.get("player_of_match") or [""])[0] if info.get("player_of_match") else ""
     
+    # Phase 1: Season and day metadata for universal model
+    season = info.get("season", "")
+    match_dates = info.get("dates", [])
+    day_count = len(match_dates) if match_dates else 0
+    
+    # Outcome details for Test matches
+    result_type = "win"  # default
+    if not winner or winner == "":
+        if outcome.get("draw"):
+            result_type = "draw"
+        elif outcome.get("no_result"):
+            result_type = "no_result"
+        elif outcome.get("tie"):
+            result_type = "tie"
+        else:
+            result_type = "no_result"
+    
     # Registry for player ID mapping
     registry = info.get("registry", {}).get("people", {})
     
@@ -126,6 +143,8 @@ def flatten_match(data: dict, filename: str = "") -> list[dict]:
                     "match_id": match_id,
                     "match_date": match_date,
                     "format": match_type,
+                    "season": season,
+                    "result_type": result_type,
                     "venue": venue,
                     "city": city,
                     "team_a": teams[0] if len(teams) > 0 else "",

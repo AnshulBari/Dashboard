@@ -58,8 +58,9 @@ async def list_teams(
 
 
 @router.get("/{team_id}")
-async def get_team(team_id: str, db: Session = Depends(get_db)):
+async def get_team(team_id: str, format: Optional[str] = Query(None), db: Session = Depends(get_db)):
     """Get detailed team information and analytics."""
+    target_format = format or "T20"
     row = db.execute(
         text("""
             SELECT
