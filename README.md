@@ -35,15 +35,24 @@ The platform ingests **ball-by-ball cricket data** from [Cricsheet](https://cric
 
 | Metric | Value |
 |--------|-------|
-| Matches | 1,243 (all available IPL) |
-| Deliveries | 295,732 |
-| Players | 807 (discovered from match data) |
-| Teams | 15 (normalized historical IPL franchises) |
-| Venues | 50 (normalized) |
-| Batting stats | 738 player-format records |
-| Bowling stats | 577 player-format records |
-| Form scores | 571 |
-| Batter-bowler matchups | 9,502 |
+| Matches | 1,256 (IPL + T20I + ODI) |
+| Deliveries | 297,043 |
+| Players | 949 (discovered from match data) |
+| Teams | 26 (IPL franchises + international nations) |
+| Venues | 58 (normalized) |
+| Competitions | 8 (IPL, World Cup, Champions Trophy, Asia Cup, bilateral) |
+| Batting stats | 859 player-format records |
+| Bowling stats | 664 player-format records |
+| Form scores | 576 |
+| Batter-bowler matchups | 9,519 |
+| Player-team affiliations | 1,021 |
+
+**Formats supported:** IPL T20 · International T20I · ODI · Test (schema-ready)
+
+**Datasets loaded:**
+- **IPL T20:** 1,243 matches / 295,732 deliveries (full Cricsheet dataset)
+- **International T20I:** 5 matches / 518 deliveries (representative fixtures)
+- **ODI:** 8 matches / 793 deliveries (World Cup, Champions Trophy, Asia Cup, bilateral)
 
 ### Questions the platform answers
 
@@ -935,36 +944,37 @@ The `db_manager.py` auto-detects the dialect from the `DATABASE_URL`.
 
 ---
 
-## Phase 1 Status
+## Phase Status
 
-Phase 1 (Universal Cricket Data Model) has been completed. The platform now supports a format-agnostic data model capable of representing T20, T20I, ODI, and Test cricket.
+### Phase 0: Stabilize IPL Foundation ✅
 
-### What was added
+Verified PostgreSQL/Supabase as production database, wired all frontend pages to live API, added 29 automated tests.
 
-| Feature | Status |
-|---------|--------|
-| Format-aware phase definitions (PP/middle/death) | ✅ Complete |
-| `format_config` table with T20/T20I/ODI/Test rules | ✅ Complete |
-| `seasons` table for season/edition modeling | ✅ Complete |
-| Test match support (declared/all_out/follow_on) | ✅ Complete |
-| Match result types (draw/tie/no_result/abandoned) | ✅ Complete |
-| Cross-format test fixtures (T20I, ODI, Test, Test draw) | ✅ Complete |
-| Competitions API (`/api/competitions`) | ✅ Complete |
-| Non-destructive PostgreSQL migration | ✅ Complete |
-| 60/60 tests passing (29 Phase 0 + 31 Phase 1) | ✅ Complete |
-| IPL data regression verified (1,243 matches intact) | ✅ Complete |
+### Phase 1: Universal Cricket Data Model ✅
 
-### Not yet implemented (Phase 2+)
+Format-agnostic data model for T20/T20I/ODI/Test. Added `format_config`, `seasons`, match result types, Test innings support.
 
-- International data ingestion (T20I, ODI, Test from Cricsheet)
-- Season data population from Cricsheet metadata
-- Frontend format/competition/season filters
-- TeamDetail and VenueDetail live API wiring
-- Test cricket-specific analytics
+### Phase 1.1: Model Hardening ✅
+
+Added `player_team_affiliations` table, competition edition/season separation, format-aware Spark UDF, 41 new tests.
+
+### Phase 2: International T20I ✅
+
+Men's T20I data ingestion pipeline validated with representative fixtures. Cross-format player identity working.
+
+### Phase 3: Men's ODI ✅
+
+Men's ODI cricket data with World Cup, Champions Trophy, Asia Cup, and bilateral fixtures. 8 matches / 793 deliveries across 11 teams. 43 new tests. Full IPL regression verified.
+
+### Not yet implemented (Phase 4+)
+
+- Test cricket ingestion (4 innings, draws, declarations)
+- Full Cricsheet dataset ingestion (requires manual download)
 - Win probability model
 - Player impact metric
+- Advanced frontend filters (format/competition/season selectors)
 
-See `docs/phase-1.md` for full details.
+See `docs/phase-3.md` for Phase 3 details.
 
 ---
 
