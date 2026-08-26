@@ -19,6 +19,9 @@ data/analytics/*
 .env.local
 .env*.local
 
+# Freebuff
+.freebuff/
+
 # IDE
 .vscode/
 .idea/

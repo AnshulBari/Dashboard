@@ -70,6 +70,19 @@ TEAM_CANONICAL = {
     "Sunrisers Hyderabad": ("Sunrisers Hyderabad", "SRH"),
     "Gujarat Titans": ("Gujarat Titans", "GT"),
     "Lucknow Super Giants": ("Lucknow Super Giants", "LSG"),
+    # Historical IPL name changes
+    "Delhi Daredevils": ("Delhi Capitals", "DC"),
+    "Kings XI Punjab": ("Punjab Kings", "PBKS"),
+    "Deccan Chargers": ("Deccan Chargers", "DC"),
+    "Rising Pune Supergiants": ("Rising Pune Supergiants", "RPS"),
+    "Rising Pune Supergiant": ("Rising Pune Supergiants", "RPS"),
+    "Kochi Tuskers Kerala": ("Kochi Tuskers Kerala", "KTK"),
+    "Pune Warriors": ("Pune Warriors", "PWI"),
+    "Pune Warriors India": ("Pune Warriors", "PWI"),
+    "Gujarat Lions": ("Gujarat Lions", "GL"),
+    "Royal Challengers Bengaluru": ("Royal Challengers Bangalore", "RCB"),
+    "England": ("England", "ENG"),
+    "England Lions": ("England Lions", "ENG-L"),
 }
 
 # Format normalization
@@ -138,13 +151,82 @@ def normalize_team_name(team_name: str) -> tuple[str, str]:
         if key.lower() == team_name.lower():
             return value
     
-    # Try partial match
-    for key, value in TEAM_CANONICAL.items():
-        if key.lower() in team_name.lower() or team_name.lower() in key.lower():
-            return value
-    
     # Return as-is with abbreviated name
     return (team_name, team_name[:3].upper())
+
+
+# Venue normalization
+# Maps variant venue names to a canonical form
+VENUE_CANONICAL = {
+    # Wankhede
+    "Wankhede Stadium": "Wankhede Stadium, Mumbai",
+    "Wankhede Stadium, Mumbai": "Wankhede Stadium, Mumbai",
+    # Chinnaswamy
+    "M Chinnaswamy Stadium": "M.Chinnaswamy Stadium, Bengaluru",
+    "M.Chinnaswamy Stadium": "M.Chinnaswamy Stadium, Bengaluru",
+    "M.Chinnaswamy Stadium, Bengaluru": "M.Chinnaswamy Stadium, Bengaluru",
+    # Eden Gardens
+    "Eden Gardens": "Eden Gardens, Kolkata",
+    "Eden Gardens, Kolkata": "Eden Gardens, Kolkata",
+    # Feroz Shah Kotla
+    "Feroz Shah Kotla": "Arun Jaitley Stadium, Delhi",
+    "Arun Jaitley Stadium": "Arun Jaitley Stadium, Delhi",
+    "Arun Jaitley Stadium, Delhi": "Arun Jaitley Stadium, Delhi",
+    "Arun Jaitley Stadium, Feroz Shah Kotla ground": "Arun Jaitley Stadium, Delhi",
+    # Chepauk
+    "MA Chidambaram Stadium, Chepauk": "MA Chidambaram Stadium, Chennai",
+    "MA Chidambaram Stadium": "MA Chidambaram Stadium, Chennai",
+    "MA Chidambaram Stadium, Chennai": "MA Chidambaram Stadium, Chennai",
+    # Rajiv Gandhi
+    "Rajiv Gandhi International Stadium, Uppal": "Rajiv Gandhi International Stadium, Hyderabad",
+    "Rajiv Gandhi International Stadium": "Rajiv Gandhi International Stadium, Hyderabad",
+    "Rajiv Gandhi International Stadium, Hyderabad": "Rajiv Gandhi International Stadium, Hyderabad",
+    # Sawai Mansingh
+    "Sawai Mansingh Stadium": "Sawai Mansingh Stadium, Jaipur",
+    "Sawai Mansingh Stadium, Jaipur": "Sawai Mansingh Stadium, Jaipur",
+    # Dubai
+    "Dubai International Cricket Stadium": "Dubai International Cricket Stadium, Dubai",
+    "Dubai International Cricket Stadium, Dubai": "Dubai International Cricket Stadium, Dubai",
+    # Narendra Modi
+    "Narendra Modi Stadium": "Narendra Modi Stadium, Ahmedabad",
+    "Narendra Modi Stadium, Ahmedabad": "Narendra Modi Stadium, Ahmedabad",
+    "Motera Stadium": "Narendra Modi Stadium, Ahmedabad",
+    "Sardar Patel Stadium": "Narendra Modi Stadium, Ahmedabad",
+    # Others
+    "PCA Stadium, Mohali": "IS Bindra Stadium, Mohali",
+    "IS Bindra Stadium": "IS Bindra Stadium, Mohali",
+    "IS Bindra Stadium, Mohali": "IS Bindra Stadium, Mohali",
+    "Green Park": "Green Park, Kanpur",
+    "Holkar Cricket Stadium": "Holkar Cricket Stadium, Indore",
+    "Shaheed Veer Narayan Singh International Stadium": "Shaheed Veer Narayan Singh International Stadium, Raipur",
+    "Dr. Y.S. Rajasekhara Reddy ACA-VDCA Cricket Stadium": "ACA-VDCA Cricket Stadium, Visakhapatnam",
+    "ACA-VDCA Cricket Stadium": "ACA-VDCA Cricket Stadium, Visakhapatnam",
+    "ACA-VDCA Cricket Stadium, Visakhapatnam": "ACA-VDCA Cricket Stadium, Visakhapatnam",
+    "Barabati Stadium": "Barabati Stadium, Cuttack",
+    "M. A. Chidambaram Stadium": "MA Chidambaram Stadium, Chennai",
+    "MA Chidambaram Stadium, Chepauk, Chennai": "MA Chidambaram Stadium, Chennai",
+    "MA Chidambaram Stadium, Chepauk": "MA Chidambaram Stadium, Chennai",
+}
+
+
+def normalize_venue_name(venue_name: str) -> str:
+    """
+    Normalize a venue name to its canonical form.
+    Returns the canonical name if found, otherwise the original name.
+    """
+    if not venue_name:
+        return venue_name
+
+    # Direct match
+    if venue_name in VENUE_CANONICAL:
+        return VENUE_CANONICAL[venue_name]
+
+    # Case-insensitive match
+    for key, value in VENUE_CANONICAL.items():
+        if key.lower() == venue_name.lower():
+            return value
+
+    return venue_name
 
 
 def normalize_format(format_str: str) -> str:

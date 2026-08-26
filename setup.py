@@ -136,7 +136,8 @@ def _create_sqlite_schema(conn):
         city TEXT,
         country TEXT,
         capacity INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     
     CREATE TABLE IF NOT EXISTS competitions (
@@ -179,6 +180,13 @@ def _create_sqlite_schema(conn):
         total_runs INTEGER DEFAULT 0,
         total_wickets INTEGER DEFAULT 0,
         total_overs REAL DEFAULT 0,
+        extras_wides INTEGER DEFAULT 0,
+        extras_noballs INTEGER DEFAULT 0,
+        extras_byes INTEGER DEFAULT 0,
+        extras_legbyes INTEGER DEFAULT 0,
+        extras_penalty INTEGER DEFAULT 0,
+        total_extras INTEGER DEFAULT 0,
+        run_rate REAL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(match_id, innings_number)
     );
@@ -199,6 +207,10 @@ def _create_sqlite_schema(conn):
         is_wicket BOOLEAN DEFAULT 0,
         wicket_type TEXT,
         dismissed_player_id TEXT REFERENCES players(id),
+        fielder_id TEXT REFERENCES players(id),
+        cumulative_runs INTEGER,
+        cumulative_wickets INTEGER,
+        current_over REAL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     
@@ -229,7 +241,6 @@ def _create_sqlite_schema(conn):
         death_strike_rate REAL,
         chasing_runs INTEGER DEFAULT 0,
         chasing_strike_rate REAL,
-        chasing_average REAL,
         first_innings_runs INTEGER DEFAULT 0,
         first_innings_strike_rate REAL,
         consistency_score REAL,
@@ -315,6 +326,8 @@ def _create_sqlite_schema(conn):
         avg_second_innings_score REAL,
         highest_total INTEGER,
         lowest_total INTEGER,
+        chasing_wins INTEGER DEFAULT 0,
+        defending_wins INTEGER DEFAULT 0,
         chasing_win_pct REAL,
         defending_win_pct REAL,
         pace_wickets_pct REAL,
@@ -325,6 +338,8 @@ def _create_sqlite_schema(conn):
         avg_fours_per_match REAL,
         avg_sixes_per_match REAL,
         boundary_frequency REAL,
+        toss_bat_first_win_pct REAL,
+        toss_field_first_win_pct REAL,
         calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(venue_id, format)
     );

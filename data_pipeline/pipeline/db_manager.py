@@ -82,20 +82,32 @@ class DatabaseManager:
         self._load_existing_ids()
     
     def _create_schema(self):
-        """Create SQLite-compatible schema."""
-        schema_path = os.path.join(
-            os.path.dirname(__file__), "..", "..", "database", "schema.sql"
-        )
-        
-        # Use the SQLite schema from setup.py
-        from setup import _create_sqlite_schema
-        
-        conn = self.engine.raw_connection()
-        try:
-            _create_sqlite_schema(conn)
-            conn.commit()
-        finally:
-            conn.close()
+        """Create schema appropriate for the database dialect."""
+        if self.is_sqlite:
+            from setup import _create_sqlite_schema
+            conn = self.engine.raw_connection()
+            try:
+                _create_sqlite_schema(conn)
+                conn.commit()
+            finally:
+                conn.close()
+        else:
+            # PostgreSQL: run the full schema.sql
+            schema_path = os.path.join(
+                os.path.dirname(__file__), "..", "..", "database", "schema.sql"
+            )
+            if os.path.exists(schema_path):
+                with open(schema_path, "r") as f:
+                    schema_sql = f.read()
+                conn = self.engine.raw_connection()
+                try:
+                    cursor = conn.cursor()
+                    cursor.execute(schema_sql)
+                    conn.commit()
+                finally:
+                    conn.close()
+            else:
+                logger.warning("schema.sql not found, skipping")
         
         logger.info("Schema created/verified")
     
@@ -156,24 +168,43 @@ class DatabaseManager:
         """Generate a new UUID string."""
         return str(uuid.uuid4())
     
+    def _upsert_sql(self, table: str, pk_col: str, columns: list[str]) -> str:
+        """Generate dialect-aware upsert SQL.
+        
+        SQLite: INSERT OR IGNORE
+        PostgreSQL: INSERT ... ON CONFLICT (pk) DO NOTHING
+        """
+        col_list = ", ".join([pk_col] + columns)
+        placeholders = ", ".join([f":{c}" for c in [pk_col] + columns])
+        
+        if self.is_sqlite:
+            return f"INSERT OR IGNORE INTO {table} ({col_list}) VALUES ({placeholders})"
+        else:
+            # PostgreSQL: ON CONFLICT DO NOTHING
+            return f"INSERT INTO {table} ({col_list}) VALUES ({placeholders}) ON CONFLICT ({pk_col}) DO NOTHING"
+    
     # ============================================================
     # Entity Resolution
     # ============================================================
     
     def resolve_team(self, name: str) -> str:
         """Get or create a team, returning its UUID."""
+        canonical, short = self._normalize_team_name(name)
+        
+        # Check if already resolved by raw or canonical name
+        if canonical in self._team_ids:
+            # Store both raw and canonical mappings
+            self._team_ids[name] = self._team_ids[canonical]
+            return self._team_ids[canonical]
         if name in self._team_ids:
             return self._team_ids[name]
         
         team_id = self._new_id()
-        canonical, short = self._normalize_team_name(name)
         
         with self.engine.connect() as conn:
             conn.execute(
-                text("""INSERT OR IGNORE INTO teams 
-                    (id, canonical_name, short_name, country, is_active)
-                    VALUES (:id, :name, :short, :country, 1)"""),
-                {"id": team_id, "name": canonical, "short": short, "country": canonical}
+                text(self._upsert_sql("teams", "id", ["canonical_name", "short_name", "country", "is_active"])),
+                {"id": team_id, "canonical_name": canonical, "short_name": short, "country": canonical, "is_active": True}
             )
             conn.commit()
         
@@ -197,16 +228,15 @@ class DatabaseManager:
         
         with self.engine.connect() as conn:
             conn.execute(
-                text("""INSERT OR IGNORE INTO players 
-                    (id, canonical_name, country, team_id, role, 
-                     batting_style, bowling_style, bowling_type, is_active)
-                    VALUES (:id, :name, :country, :team_id, :role,
-                            :bat, :bowl, :bowl_type, 1)"""),
+                text(self._upsert_sql("players", "id", [
+                    "canonical_name", "country", "team_id", "role",
+                    "batting_style", "bowling_style", "bowling_type", "is_active"
+                ])),
                 {
-                    "id": player_id, "name": name, "country": country,
-                    "team_id": team_id, "role": role,
-                    "bat": batting_style, "bowl": bowling_style,
-                    "bowl_type": bowling_type,
+                    "id": player_id, "canonical_name": name, "country": country,
+                    "team_id": team_id or None, "role": role,
+                    "batting_style": batting_style, "bowling_style": bowling_style,
+                    "bowling_type": bowling_type, "is_active": True,
                 }
             )
             conn.commit()
@@ -225,10 +255,8 @@ class DatabaseManager:
         
         with self.engine.connect() as conn:
             conn.execute(
-                text("""INSERT OR IGNORE INTO venues 
-                    (id, name, city, country)
-                    VALUES (:id, :name, :city, :country)"""),
-                {"id": venue_id, "name": name, "city": city, "country": country}
+                text(self._upsert_sql("venues", "id", ["name", "city", "country"])),
+                {"id": venue_id, "name": name, "city": city or "", "country": country or ""}
             )
             conn.commit()
         
@@ -244,10 +272,8 @@ class DatabaseManager:
         
         with self.engine.connect() as conn:
             conn.execute(
-                text("""INSERT OR IGNORE INTO competitions 
-                    (id, name, format, season)
-                    VALUES (:id, :name, :format, :season)"""),
-                {"id": comp_id, "name": name, "format": format, "season": season}
+                text(self._upsert_sql("competitions", "id", ["name", "format", "season"])),
+                {"id": comp_id, "name": name, "format": format or "", "season": season or ""}
             )
             conn.commit()
         
@@ -258,6 +284,11 @@ class DatabaseManager:
         """Normalize a team name to (canonical_name, short_name)."""
         from data_pipeline.spark.normalize import normalize_team_name
         return normalize_team_name(name)
+    
+    def _normalize_venue_name(self, name: str) -> str:
+        """Normalize a venue name to its canonical form."""
+        from data_pipeline.spark.normalize import normalize_venue_name
+        return normalize_venue_name(name)
     
     # ============================================================
     # Bulk Entity Resolution
@@ -287,11 +318,14 @@ class DatabaseManager:
         
         logger.info(f"  Discovered {len(self._team_ids)} teams")
         
-        # Discover venues
+        # Discover venues (normalize names to merge duplicates)
+        from data_pipeline.spark.normalize import normalize_venue_name
         venue_data = df[["venue", "city"]].drop_duplicates()
         for _, row in venue_data.iterrows():
             v = row.get("venue", "")
             c = row.get("city", "")
+            if v:
+                v = normalize_venue_name(v)
             if v and v not in self._venue_ids:
                 self.resolve_venue(v, c or "")
         
@@ -334,8 +368,9 @@ class DatabaseManager:
         
         for name in sorted(player_names):
             if name and name not in self._player_ids:
-                team_name = player_team_map.get(name, "")
-                team_id = self._team_ids.get(team_name, "")
+                raw_team = player_team_map.get(name, "")
+                team_name, _ = self._normalize_team_name(raw_team) if raw_team else ("", "")
+                team_id = self._team_ids.get(team_name, None)
                 # Infer role from appearances
                 appears_batting = name in batters_set
                 appears_bowling = name in bowlers_set
@@ -345,7 +380,7 @@ class DatabaseManager:
                     role = "bowler"
                 else:
                     role = "batsman"
-                self.resolve_player(name, team_id=team_id or None, role=role)
+                self.resolve_player(name, team_id=team_id, role=role)
         
         logger.info(f"  Discovered {len(self._player_ids)} players")
     
@@ -379,7 +414,8 @@ class DatabaseManager:
                 match_db_id = self._new_id()
                 
                 # Resolve foreign keys
-                venue_id = self._venue_ids.get(row.get("venue", ""), None)
+                venue_raw = row.get("venue", "")
+                venue_id = self._venue_ids.get(self._normalize_venue_name(venue_raw), None)
                 team_a_id = self._team_ids.get(row.get("team_a", ""), None)
                 team_b_id = self._team_ids.get(row.get("team_b", ""), None)
                 toss_winner_id = self._team_ids.get(row.get("toss_winner", ""), None)
@@ -415,32 +451,29 @@ class DatabaseManager:
                 total_innings = int(match_deliveries["innings_number"].max()) if len(match_deliveries) > 0 else 2
                 
                 conn.execute(
-                    text("""INSERT OR IGNORE INTO matches 
-                        (id, external_id, competition_id, venue_id, match_date, format,
-                         team_a_id, team_b_id, toss_winner_id, toss_decision,
-                         winner_id, win_margin, win_type, player_of_match_id,
-                         total_innings, total_deliveries)
-                        VALUES (:id, :eid, :cid, :vid, :date, :fmt,
-                                :ta, :tb, :tw, :td,
-                                :winner, :margin, :wtype, :pom,
-                                :innings, :deliveries)"""),
+                    text(self._upsert_sql("matches", "id", [
+                        "external_id", "competition_id", "venue_id", "match_date", "format",
+                        "team_a_id", "team_b_id", "toss_winner_id", "toss_decision",
+                        "winner_id", "win_margin", "win_type", "player_of_match_id",
+                        "total_innings", "total_deliveries"
+                    ])),
                     {
                         "id": match_db_id,
-                        "eid": match_external_id,
-                        "cid": comp_id or None,
-                        "vid": venue_id or None,
-                        "date": match_date,
-                        "fmt": row.get("format", ""),
-                        "ta": team_a_id or None,
-                        "tb": team_b_id or None,
-                        "tw": toss_winner_id or None,
-                        "td": row.get("toss_decision", ""),
-                        "winner": winner_id or None,
-                        "margin": win_margin,
-                        "wtype": win_type,
-                        "pom": pom_id or None,
-                        "innings": total_innings,
-                        "deliveries": total_deliveries,
+                        "external_id": match_external_id,
+                        "competition_id": comp_id or None,
+                        "venue_id": venue_id or None,
+                        "match_date": match_date,
+                        "format": row.get("format", ""),
+                        "team_a_id": team_a_id or None,
+                        "team_b_id": team_b_id or None,
+                        "toss_winner_id": toss_winner_id or None,
+                        "toss_decision": row.get("toss_decision", ""),
+                        "winner_id": winner_id or None,
+                        "win_margin": win_margin,
+                        "win_type": win_type,
+                        "player_of_match_id": pom_id or None,
+                        "total_innings": total_innings,
+                        "total_deliveries": total_deliveries,
                     }
                 )
                 
@@ -488,19 +521,19 @@ class DatabaseManager:
                 total_overs = float(row["max_over"]) + (row["ball_count"] % 6) / 10.0 if row["ball_count"] > 0 else 0
                 
                 conn.execute(
-                    text("""INSERT OR IGNORE INTO innings 
-                        (id, match_id, innings_number, batting_team_id, bowling_team_id,
-                         total_runs, total_wickets, total_overs)
-                        VALUES (:id, :mid, :inn, :bat, :bowl, :runs, :wkts, :overs)"""),
+                    text(self._upsert_sql("innings", "id", [
+                        "match_id", "innings_number", "batting_team_id", "bowling_team_id",
+                        "total_runs", "total_wickets", "total_overs"
+                    ])),
                     {
                         "id": innings_id,
-                        "mid": match_db_id,
-                        "inn": int(row["innings_number"]),
-                        "bat": batting_team_id or None,
-                        "bowl": bowling_team_id or None,
-                        "runs": int(row["total_runs"]),
-                        "wkts": int(row["total_wickets"]),
-                        "overs": round(total_overs, 1),
+                        "match_id": match_db_id,
+                        "innings_number": int(row["innings_number"]),
+                        "batting_team_id": batting_team_id or None,
+                        "bowling_team_id": bowling_team_id or None,
+                        "total_runs": int(row["total_runs"]),
+                        "total_wickets": int(row["total_wickets"]),
+                        "total_overs": round(total_overs, 1),
                     }
                 )
                 
@@ -593,11 +626,12 @@ class DatabaseManager:
             df["id"] = [str(uuid.uuid4()) for _ in range(len(df))]
         
         try:
-            if self.is_sqlite:
-                # SQLite doesn't support TRUNCATE
-                with self.engine.connect() as conn:
+            with self.engine.connect() as conn:
+                if self.is_sqlite:
                     conn.execute(text(f"DELETE FROM {table_name}"))
-                    conn.commit()
+                else:
+                    conn.execute(text(f"TRUNCATE TABLE {table_name} RESTART IDENTITY CASCADE"))
+                conn.commit()
             
             df.to_sql(
                 table_name, self.engine, if_exists="append",

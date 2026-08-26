@@ -342,6 +342,14 @@ class CricketPipeline:
                     continue
                 
                 df = self.validate(df)
+                
+                # Normalize venue and team names to merge duplicates
+                from data_pipeline.spark.normalize import normalize_venue_name, normalize_team_name
+                df["venue"] = df["venue"].apply(lambda v: normalize_venue_name(v) if pd.notna(v) else v)
+                for col in ["batting_team", "bowling_team", "team_a", "team_b", "toss_winner", "winner"]:
+                    if col in df.columns:
+                        df[col] = df[col].apply(lambda v: normalize_team_name(v)[0] if pd.notna(v) and v else v)
+                
                 self.resolve_entities(df)
                 self.write_core_data(df)
                 

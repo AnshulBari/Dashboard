@@ -2,7 +2,7 @@
 
 > A data engineering and analytics platform that transforms raw historical cricket ball-by-ball data into actionable intelligence — player form, team strength, venue profiles, batter-bowler matchups, and platform-computed rankings.
 
-**This is NOT a cricket score website.** It is a portfolio-grade data engineering project that demonstrates end-to-end data pipeline design, analytical computing, and full-stack visualization.
+**This is NOT a cricket score website.** It is a portfolio-grade data engineering project demonstrating end-to-end pipeline design, analytical computing, and full-stack visualization.
 
 ---
 
@@ -15,6 +15,7 @@
 - [Project Structure](#project-structure)
 - [Quick Start](#quick-start)
 - [Running the Data Pipeline](#running-the-data-pipeline)
+- [Database Migration (SQLite → PostgreSQL)](#database-migration-sqlite--postgresql)
 - [API Reference](#api-reference)
 - [Analytics Methodology](#analytics-methodology)
 - [Data Sources](#data-sources)
@@ -28,22 +29,36 @@
 
 ## What It Does
 
-The platform ingests **ball-by-ball cricket data** from [Cricsheet](https://cricsheet.org/), processes it through a data pipeline, computes analytical statistics, stores them in a database, and presents them through a REST API and React dashboard.
+The platform ingests **ball-by-ball cricket data** from [Cricsheet](https://cricsheet.org/), processes it through a data pipeline, computes analytical statistics, stores them in PostgreSQL, and presents them through a REST API and React dashboard.
+
+### Current data loaded
+
+| Metric | Value |
+|--------|-------|
+| Matches | 1,243 (all available IPL) |
+| Deliveries | 295,732 |
+| Players | 807 (discovered from match data) |
+| Teams | 15 (normalized historical IPL franchises) |
+| Venues | 50 (normalized) |
+| Batting stats | 738 player-format records |
+| Bowling stats | 577 player-format records |
+| Form scores | 571 |
+| Batter-bowler matchups | 9,502 |
 
 ### Questions the platform answers
 
 | Category | Example Questions |
 |----------|------------------|
 | **Player Intelligence** | Who is currently in form? Who performs best against a specific opponent? How does a player perform in the powerplay vs death overs? |
-| **Team Intelligence** | Which teams are strongest in particular phases? Which teams chase best? How does a team's bowling economy compare across formats? |
-| **Venue Intelligence** | Which venues favor batting? Which venues have a high chasing win rate? What is the average first innings score at a venue? |
+| **Team Intelligence** | Which teams are strongest in particular phases? Which teams chase best? How does a team's bowling economy compare? |
+| **Venue Intelligence** | Which venues favor batting? Which venues have a high chasing win rate? What is the average first innings score? |
 | **Matchup Analytics** | Which batters dominate a specific bowler? How does a batter perform against pace vs spin? |
 | **Rankings** | Who are the top 10 batters by form score? Who are the leading wicket-takers? |
 
 ### Key analytical metrics
 
-- **Player Form Score** — An original weighted composite metric (0–100) measuring current player form across six normalized components
-- **Team Strength Score** — An explainable composite of batting strength, bowling strength, and win rate
+- **Player Form Score** — Original weighted composite metric (0–100) across six normalized components
+- **Team Strength Score** — Explainable composite of batting strength, bowling strength, and win rate
 - **Batter-Bowler Matchups** — Head-to-head statistics derived from actual ball-by-ball data
 - **Phase-Specific Performance** — Powerplay, middle overs, and death overs breakdowns
 - **Venue Profiles** — Average scores, chasing advantage, pace/spin wicket distribution
@@ -83,17 +98,17 @@ The platform ingests **ball-by-ball cricket data** from [Cricsheet](https://cric
               │  6. Write analytics      │
               └────────────┬─────────────┘
                            │
-                           ▼
-              ┌──────────────────────────┐
-              │       PostgreSQL /       │
-              │       SQLite             │
-              │                          │
-              │  • Core entities         │
-              │  • Match data            │
-              │  • Precomputed analytics │
-              └────────────┬─────────────┘
-                           │
-                           ▼
+                ┌──────────┴──────────┐
+                │                     │
+                ▼                     ▼
+    ┌──────────────────┐   ┌──────────────────┐
+    │  SQLite (dev)    │   │ PostgreSQL (prod) │
+    │  cricket_        │   │  Supabase         │
+    │  intelligence.db │   │  (cloud-hosted)   │
+    └────────┬─────────┘   └────────┬─────────┘
+             │                      │
+             └──────────┬───────────┘
+                        ▼
               ┌──────────────────────────┐
               │    FastAPI REST API      │
               │                          │
@@ -119,17 +134,19 @@ The platform ingests **ball-by-ball cricket data** from [Cricsheet](https://cric
               └──────────────────────────┘
 ```
 
-### Separation of concerns
+### Data flow
 
 | Layer | Responsibility | Technology |
 |-------|---------------|------------|
 | **Ingestion** | Download and extract Cricsheet data | Python `requests` + `zipfile` |
 | **Pipeline** | Parse, validate, normalize, compute analytics | Python + pandas |
-| **Storage** | Persist entities and precomputed analytics | SQLite (dev) / PostgreSQL (prod) |
+| **Storage (dev)** | Local development database | SQLite (`data/cricket_intelligence.db`) |
+| **Storage (prod)** | Production database | PostgreSQL via Supabase |
+| **Migration** | SQLite → PostgreSQL data transfer | `migrate_sqlite_to_pg.py` |
 | **API** | Serve analytical data over REST | FastAPI + SQLAlchemy |
 | **Frontend** | Visualize analytics in an interactive dashboard | React + Vite + TypeScript + Tailwind |
 
-**Important design principle:** The pipeline runs **offline** as a batch process. The API and frontend **never** compute expensive statistics at request time — they only query precomputed results. This keeps the application layer fast and lightweight.
+**Design principle:** The pipeline runs **offline** as a batch process. The API and frontend **never** compute expensive statistics at request time — they only query precomputed results from PostgreSQL.
 
 ---
 
@@ -140,7 +157,7 @@ The platform ingests **ball-by-ball cricket data** from [Cricsheet](https://cric
 The pipeline downloads compressed ZIP files from Cricsheet containing one JSON file per match:
 
 ```
-Cricsheet ZIP → Extract → data/raw/ipl/*.json (1,243 match files)
+Cricsheet ZIP → Extract → data/raw/ipl/*.json (1,243 match files for IPL)
 ```
 
 Each JSON file contains:
@@ -152,8 +169,7 @@ Each JSON file contains:
 The `reader.py` module reads each JSON file and flattens it into a DataFrame with **one row per delivery**:
 
 ```python
-# For a typical T20 match, this produces ~300 rows
-# Each row contains:
+# For a typical T20 match, this produces ~240 rows
 {
   "match_id": "1175338",
   "match_date": "2017-04-05",
@@ -166,9 +182,13 @@ The `reader.py` module reads each JSON file and flattens it into a DataFrame wit
   "ball_in_over": 1,
   "batter": "CH Gayle",
   "bowler": "B Kumar",
+  "non_striker": "V Kohli",
   "runs_batter": 0,
   "runs_total": 0,
   "is_wicket": false,
+  "wicket_type": null,
+  "dismissed_player": null,
+  "event_name": "Indian Premier League",
   ...
 }
 ```
@@ -178,55 +198,63 @@ The `reader.py` module reads each JSON file and flattens it into a DataFrame wit
 Data quality checks filter out:
 - Deliveries with null batter or bowler
 - Negative run values
-- Impossible over numbers
-- Invalid ball-in-over values
+- Impossible over numbers (>100)
+- Invalid ball-in-over values (not 1–9)
 
 ### Step 4: Entity Resolution
 
 The pipeline discovers all unique entities from the raw data and maps them to stable UUIDs:
 
-- **Teams** — "Royal Challengers Bangalore" → canonical team with UUID
-- **Players** — "V Kohli" → canonical player with UUID, role inferred from batting/bowling appearances
+- **Teams** — "Royal Challengers Bangalore" → canonical team with UUID (also normalizes historical names like "Delhi Daredevils" → "Delhi Capitals")
+- **Players** — "V Kohli" → canonical player with UUID; role inferred from bowling appearances (30+ balls bowled → bowler/allrounder)
 - **Venues** — "M.Chinnaswamy Stadium" → canonical venue with UUID
 - **Competitions** — "Indian Premier League" → competition record
 
-This is the critical step that ensures the same entity is never duplicated, regardless of how different data sources spell the name.
+This step ensures the same entity is never duplicated, regardless of how different sources spell the name.
 
 ### Step 5: Write Core Data
 
-The pipeline writes to the database in order:
+The pipeline writes to the database in dependency order:
 1. **Teams** → `teams` table
 2. **Players** → `players` table (with role inferred)
 3. **Venues** → `venues` table
 4. **Competitions** → `competitions` table
-5. **Matches** → `matches` table (with foreign keys to teams, venue, competition)
-6. **Innings** → `innings` table (with foreign keys to match and batting/bowling teams)
-7. **Deliveries** → `deliveries` table (with foreign keys to innings, match, players)
+5. **Matches** → `matches` table (with FKs to teams, venue, competition)
+6. **Innings** → `innings` table (with FKs to match and batting/bowling teams)
+7. **Deliveries** → `deliveries` table (with FKs to innings, match, players)
 
 ### Step 6: Compute Analytics
 
 Using the delivery-level data, the pipeline computes:
 
 **Player Batting Stats** — Grouped by (player, format):
-- Matches, innings, runs, average, strike rate, 4s, 6s, fifties, hundreds
-- Phase-specific: powerplay runs/SR, middle runs/SR, death runs/SR
+- Matches, innings, not outs, runs, average, strike rate, highest score
+- 4s, 6s, fifties, hundreds, boundary %, dot ball %
+- Phase-specific: powerplay/middle/death runs and strike rates
 - Situational: chasing runs/SR, first innings runs/SR
 - Consistency score (coefficient of variation)
 
 **Player Bowling Stats** — Grouped by (player, format):
-- Matches, overs, wickets, economy, bowling average, strike rate
+- Matches, innings, overs, balls bowled, wickets, runs conceded
+- Economy, bowling average, strike rate, dot ball %
 - Phase-specific: powerplay/middle/death overs, wickets, economy
 
 **Player Form Score** — Weighted composite metric (see [Analytics Methodology](#analytics-methodology))
 
 **Team Performance** — Grouped by (team, format):
-- Win rate, average scores, phase-wise scoring, strength scores
+- Wins, losses, win rate, average scores by phase
+- Batting strength, bowling strength, overall strength scores
+- Chasing win %, defending win %
 
 **Venue Stats** — Grouped by (venue, format):
-- Average scores, highest/lowest totals, phase-wise scoring
+- Average scores (1st/2nd innings), highest/lowest totals
+- Chasing/defending wins and win rates
+- Pace/spin wicket percentages, phase-wise scoring
+- Boundary frequency, toss decision win rates
 
 **Batter-Bowler Matchups** — Grouped by (batter, bowler, format):
 - Minimum 10 balls for statistical significance
+- Balls, runs, wickets, strike rate, average, dot balls, boundaries, sixes
 
 ### Step 7: Serve via API
 
@@ -259,29 +287,36 @@ The React dashboard displays the data through:
 
 | Layer | Technology | Why |
 |-------|-----------|-----|
-| **Data Pipeline** | Python + pandas | Handles Cricsheet data volumes (~5M deliveries) in memory; no Java dependency |
+| **Data Pipeline** | Python + pandas | Handles Cricsheet volumes (~5M deliveries) in memory; no Java dependency |
 | **Data Ingestion** | Python `requests` | Simple HTTP download with checksum verification |
 | **Database (dev)** | SQLite | Zero setup, same SQL schema as PostgreSQL |
-| **Database (prod)** | PostgreSQL (Supabase) | Production-grade, free tier available |
-| **ORM** | SQLAlchemy | Database-agnostic queries, schema management |
+| **Database (prod)** | PostgreSQL (Supabase) | Production-grade, free tier, 500 MB storage |
+| **ORM** | SQLAlchemy 2.x | Database-agnostic queries, works with both SQLite and PostgreSQL |
 | **API** | FastAPI | Auto-generated docs, async support, Pydantic validation |
 | **Frontend** | React + TypeScript | Type-safe, component-based UI |
 | **Build Tool** | Vite | Fast dev server and production builds |
 | **Styling** | Tailwind CSS | Utility-first CSS, consistent design system |
 | **Charts** | Recharts | React-native charting library |
 | **Routing** | React Router | Client-side navigation |
-| **Deployment** | Vercel (frontend) | Free hosting with automatic deployments |
+| **Deployment** | Vercel (frontend) + Supabase (DB) | Free hosting with automatic deployments |
 
-###为什么不 PySpark?
+### Why pandas instead of PySpark?
 
 PySpark is included in the project as a reference implementation in `data_pipeline/spark/`. However, the primary pipeline uses **pandas** because:
 
-1. **No Java dependency** — PySpark 3.5 requires Java 8–17; the available Java 23 is incompatible
-2. **Adequate for current data volumes** — Cricsheet's full dataset (~5M deliveries) fits comfortably in pandas memory
+1. **No Java dependency** — PySpark historically required Java 8–17; PySpark 4.x now supports Java 23, but pandas remains simpler for current volumes
+2. **Adequate for current data volumes** — Cricsheet's full dataset (~5M deliveries) fits in memory
 3. **Simpler debugging** — No JVM startup, no Spark UI, no serialized closures
 4. **Faster iteration** — Direct Python debugging, no `spark-submit`
 
-The PySpark code in `data_pipeline/spark/` demonstrates the same algorithms and can be activated if the data volume grows beyond pandas capacity or if a compatible Java version is installed.
+The PySpark code in `data_pipeline/spark/` demonstrates the same algorithms and can be activated if data volumes grow or distributed processing is needed.
+
+### Why SQLite for local development?
+
+- **Zero setup** — No database server needed
+- **Same SQL schema** — Identical table structure as PostgreSQL
+- **Portable** — Single file, easy to reset and re-seed
+- **Migration path** — `migrate_sqlite_to_pg.py` transfers data to PostgreSQL
 
 ---
 
@@ -293,7 +328,7 @@ cricket-intelligence/
 ├── frontend/                          # React dashboard
 │   ├── src/
 │   │   ├── pages/                     # Page components
-│   │   │   ├── Dashboard.tsx          # Overview with real API data
+│   │   │   ├── Dashboard.tsx          # Overview — fetches from live API
 │   │   │   ├── Players.tsx            # Player list with filters
 │   │   │   ├── PlayerDetail.tsx       # Individual player profile
 │   │   │   ├── Teams.tsx              # Team strength rankings
@@ -326,14 +361,15 @@ cricket-intelligence/
 │   │   └── live.py                    # Live matches (stub)
 │   ├── models/entities.py             # SQLAlchemy ORM models
 │   ├── schemas/responses.py           # Pydantic response schemas
-│   └── utils/database.py              # Database connection management
+│   ├── utils/database.py              # Database connection (auto-detects SQLite/PostgreSQL)
+│   └── requirements.txt               # FastAPI, SQLAlchemy, psycopg2-binary, etc.
 │
 ├── data_pipeline/                     # Data engineering pipeline
 │   ├── pipeline/                      # ACTIVE pipeline (pandas-based)
 │   │   ├── reader.py                  # Cricsheet JSON → flat DataFrame
-│   │   ├── db_manager.py              # Entity resolution + DB writes
+│   │   ├── db_manager.py              # Entity resolution + DB writes (SQLite & PostgreSQL)
 │   │   ├── analytics.py               # All statistical computations
-│   │   └── run.py                     # Main pipeline orchestrator
+│   │   └── run.py                     # Main pipeline orchestrator (CLI)
 │   │
 │   ├── ingestion/
 │   │   └── cricsheet.py              # Cricsheet download + extract
@@ -359,12 +395,17 @@ cricket-intelligence/
 │       └── run_pipeline.py            # PySpark pipeline runner (reference)
 │
 ├── database/
-│   └── schema.sql                     # PostgreSQL schema (20+ tables)
+│   └── schema.sql                     # PostgreSQL schema (20 tables, 2 views, indexes)
+│
+├── migrate_sqlite_to_pg.py            # SQLite → PostgreSQL migration tool
 │
 ├── data/                              # Gitignored
 │   ├── raw/                           # Downloaded Cricsheet ZIPs + JSONs
-│   ├── processed/                     # Pipeline intermediate output
-│   └── analytics/                     # Pipeline analytics output
+│   │   ├── ipl/                       # IPL match JSONs
+│   │   ├── t20i/                      # T20I match JSONs (after download)
+│   │   ├── odi/                       # ODI match JSONs (after download)
+│   │   └── test/                      # Test match JSONs (after download)
+│   └── cricket_intelligence.db        # SQLite database with all data
 │
 ├── docs/                              # Detailed documentation
 │   ├── architecture.md
@@ -373,8 +414,10 @@ cricket-intelligence/
 │   ├── analytics.md
 │   └── deployment.md
 │
-├── setup.py                           # One-command database setup
+├── setup.py                           # SQLite database setup + schema
+├── .env                               # Local environment variables (gitignored)
 ├── .env.example                       # Environment variable template
+├── .gitignore                         # Ignores .env, data/, __pycache__, etc.
 └── README.md                          # This file
 ```
 
@@ -386,28 +429,32 @@ cricket-intelligence/
 
 - **Python 3.10+** — for the pipeline and backend
 - **Node.js 18+** — for the frontend
-- **Java** — NOT required for the pandas pipeline (only needed for the PySpark reference implementation)
+- **Java** — NOT required for the pandas pipeline (only for the PySpark reference implementation)
 
-### 1. Install Dependencies
+### 1. Clone and Install
 
 ```bash
-# Backend
-pip install -r backend/requirements.txt
+git clone <repository-url>
+cd cricket-intelligence
 
-# Frontend
+# Backend + pipeline dependencies
+pip install -r backend/requirements.txt
+pip install -r data_pipeline/requirements.txt
+
+# Frontend dependencies
 cd frontend && npm install && cd ..
 ```
 
-### 2. Set Up Database with Real Data
+### 2. Set Up Database (SQLite — zero setup)
 
 ```bash
-# Run the pipeline on IPL data (downloads ~5MB from Cricsheet, processes 200 matches)
-python -m data_pipeline.pipeline.run --format ipl --sample 200
+# Download all IPL matches from Cricsheet and process them (~5 min)
+python -m data_pipeline.pipeline.run --format ipl
 ```
 
-This creates `data/cricket_intelligence.db` with real IPL data including:
-- 200 matches, 47,542 deliveries
-- 261 players, 11 teams, 20 venues
+This creates `data/cricket_intelligence.db` with real IPL data:
+- 1,243 matches, 295,732 deliveries
+- 807 players, 15 teams, 50 venues
 - Precomputed batting/bowling stats, form scores, matchups
 
 ### 3. Start the Backend API
@@ -417,7 +464,7 @@ DATABASE_URL="sqlite:///data/cricket_intelligence.db" \
   uvicorn backend.main:app --reload --port 8000
 ```
 
-API docs available at http://localhost:8000/docs
+API docs: http://localhost:8000/docs
 
 ### 4. Start the Frontend
 
@@ -426,29 +473,43 @@ cd frontend
 VITE_API_URL="http://localhost:8000/api" npm run dev
 ```
 
-Dashboard available at http://localhost:5173
+Dashboard: http://localhost:5173
+
+### 5. (Optional) Migrate to PostgreSQL
+
+If you have a Supabase project set up:
+
+```bash
+# 1. Apply schema to Supabase (via SQL Editor)
+# 2. Set DATABASE_URL in .env
+DATABASE_URL="postgresql://postgres.<ref>:<password>@<host>:5432/postgres"
+
+# 3. Run migration
+python migrate_sqlite_to_pg.py
+
+# 4. Start backend pointing to PostgreSQL (just use .env)
+uvicorn backend.main:app --reload --port 8000
+```
 
 ---
 
 ## Running the Data Pipeline
 
-The pipeline processes Cricsheet data in stages. Each stage can be run independently.
-
 ### Available formats
 
-| Format | Cricsheet ID | Command |
-|--------|-------------|---------|
-| IPL | `ipl` | `--format ipl` |
-| T20 International | `t20i` | `--format t20i` |
-| ODI | `odi` | `--format odi` |
-| Test | `test` | `--format test` |
-| All formats | `all` | `--format all` |
+| Format | Cricsheet ID | Command | Typical Size |
+|--------|-------------|---------|-------------|
+| IPL | `ipl` | `--format ipl` | ~5 MB (1,243 matches) |
+| T20 International | `t20i` | `--format t20i` | ~10 MB (~2,000 matches) |
+| ODI | `odi` | `--format odi` | ~30 MB (~2,500 matches) |
+| Test | `test` | `--format test` | ~50 MB (~1,200 matches) |
+| All formats | `all` | `--format all` | ~95 MB |
 
 ### Common commands
 
 ```bash
-# Process 200 IPL matches (quick test, ~50 seconds)
-python -m data_pipeline.pipeline.run --format ipl --sample 200
+# Process all IPL matches (1,243 matches, ~5 minutes)
+python -m data_pipeline.pipeline.run --format ipl
 
 # Process ALL IPL matches (1,243 matches, ~10 minutes)
 python -m data_pipeline.pipeline.run --format ipl
@@ -466,7 +527,7 @@ python -m data_pipeline.pipeline.run --format ipl --force --sample 50
 Stage 1: INGEST   → Download ZIP from Cricsheet, extract JSON files
 Stage 2: READ     → Parse JSON into flat delivery-level DataFrame
 Stage 3: VALIDATE → Check data quality, reject malformed records
-Stage 4: RESOLVE  → Discover entities, map names to UUIDs, infer roles
+Stage 4: RESOLVE  → Discover entities, map names to UUIDs, infer player roles
 Stage 5: WRITE    → Write teams, players, venues, matches, innings, deliveries
 Stage 6: COMPUTE  → Calculate player stats, team stats, venue stats, matchups, form scores
 Stage 7: WRITE    → Write analytical results to database
@@ -475,16 +536,71 @@ Stage 8: REPORT   → Print summary statistics
 
 ### Idempotency
 
-Running the pipeline twice does NOT create duplicate data. The pipeline uses:
-- `INSERT OR IGNORE` for core entities (matches have `external_id` UNIQUE constraint)
-- Truncate-then-insert for analytical tables (since they're fully recomputed)
-- UUID-based entity resolution ensures the same player is never created twice
+Running the pipeline twice does NOT create duplicate data:
+- **Core entities** use `INSERT OR IGNORE` (SQLite) or `ON CONFLICT DO NOTHING` (PostgreSQL)
+- **Matches** have a `external_id` UNIQUE constraint (Cricsheet match ID)
+- **Analytical tables** are truncated and re-inserted each run (since they're fully recomputed)
+- UUID-based entity resolution ensures the same player/team is never created twice
+
+### Writing to PostgreSQL directly
+
+The pipeline can write directly to PostgreSQL. Set `DATABASE_URL` in your `.env` file:
+
+```bash
+DATABASE_URL="postgresql://postgres.<ref>:<password>@<host>:5432/postgres" \
+  python -m data_pipeline.pipeline.run --format ipl --sample 200
+```
+
+The `db_manager.py` automatically detects PostgreSQL and uses dialect-appropriate SQL (`ON CONFLICT DO NOTHING` instead of `INSERT OR IGNORE`).
+
+---
+
+## Database Migration (SQLite → PostgreSQL)
+
+A migration tool is provided to transfer data from the local SQLite database to Supabase PostgreSQL.
+
+### Usage
+
+```bash
+# Ensure .env has DATABASE_URL pointing to Supabase
+python migrate_sqlite_to_pg.py
+```
+
+### What it does
+
+1. Reads all 13 populated tables from SQLite
+2. Truncates corresponding PostgreSQL tables (with `RESTART IDENTITY CASCADE`)
+3. Writes data preserving all UUIDs
+4. Verifies row counts match between source and destination
+5. Runs 10 foreign-key integrity checks
+6. Reports any orphaned rows or count mismatches
+
+### Verified migration results
+
+| Table | SQLite | PostgreSQL |
+|-------|--------|------------|
+| teams | 15 | 15 |
+| players | 807 | 807 |
+| venues | 50 | 50 |
+| competitions | 1 | 1 |
+| matches | 1,243 | 1,243 |
+| innings | 2,514 | 2,514 |
+| deliveries | 295,732 | 295,732 |
+| player_batting_stats | 738 | 738 |
+| player_bowling_stats | 577 | 577 |
+| player_form | 571 | 571 |
+| team_performance | 15 | 15 |
+| venue_stats | 50 | 50 |
+| batter_bowler_matchups | 9,502 | 9,502 |
+
+All foreign-key integrity checks pass with zero orphaned rows.
 
 ---
 
 ## API Reference
 
 ### Base URL
+
 ```
 http://localhost:8000
 ```
@@ -507,7 +623,8 @@ http://localhost:8000
 - `role` — batsman, bowler, allrounder, wicketkeeper
 - `country` — Filter by country
 - `sort_by` — form_score, runs, wickets, batting_average
-- `limit` — Number of results (max 200)
+- `sort_order` — asc, desc (default: desc)
+- `limit` — Number of results (1–200, default: 50)
 - `offset` — Pagination offset
 
 #### Teams
@@ -587,15 +704,9 @@ Form Score = 0.35 × Recent_Performance
 | **Match Situation** | 10% | Ratio of chasing average to overall average. Chasing under pressure = higher score |
 | **Efficiency** | 10% | Strike rate × average / 100. Combines speed and reliability of run-scoring |
 
-**Normalization:** Each component is min-max normalized to 0–100 within the same format, so the best player gets 100 and the worst gets 0 for each component.
+**Normalization:** Each component is min-max normalized to 0–100 within the same format. The best player gets 100, the worst gets 0 for each component.
 
-**Minimum innings:** A player needs at least 3 innings for statistical significance. Players with fewer innings are excluded.
-
-**Limitations:**
-- Requires sufficient data (3+ innings)
-- Weights are initial estimates, not scientifically validated
-- Cold start problem for new players
-- Not adjusted for match importance or tournament context
+**Minimum innings:** A player needs at least 3 innings for statistical significance. Players with fewer are excluded.
 
 ### Team Strength Score
 
@@ -612,7 +723,7 @@ Where:
 
 Computed from all deliveries where a specific batter faced a specific bowler:
 - **Minimum 10 balls** for statistical significance
-- Includes: balls, runs, wickets, strike rate, average, dot balls, boundaries
+- Metrics: balls, runs, wickets, strike rate, average, dot balls, boundaries, sixes
 
 ### Phase Classification
 
@@ -673,14 +784,33 @@ Cricsheet's ball-by-ball data begins approximately at:
 - Player names use Cricsheet's format (e.g., "V Kohli" not "Virat Kohli")
 - Some matches may have incomplete data
 - The platform validates data quality but cannot fix source errors
-- Team names are normalized to canonical forms (e.g., "Delhi Daredevils" → "Delhi Capitals" for historical matches)
+- Team names are normalized to canonical forms where possible
+
+### What's currently loaded
+
+The **full IPL dataset** (1,243 matches) has been processed. The pipeline supports loading all formats:
+
+```bash
+# Full IPL
+python -m data_pipeline.pipeline.run --format ipl
+
+# T20I international
+python -m data_pipeline.pipeline.run --format t20i
+
+# ODI
+python -m data_pipeline.pipeline.run --format odi
+
+# Test
+python -m data_pipeline.pipeline.run --format test
+```
 
 ### What's NOT yet implemented
 
-- Win probability machine learning model (planned for later)
+- Win probability machine learning model (planned)
 - Live match data (requires external API provider)
 - News aggregation (requires RSS feed integration)
 - Player Impact metric (actual vs expected performance)
+- Tournament-specific analytics filtering
 
 ---
 
@@ -690,11 +820,11 @@ Cricsheet's ball-by-ball data begins approximately at:
 
 ```bash
 # Database connection
-DATABASE_URL=sqlite:///data/cricket_intelligence.db  # Local dev
-# DATABASE_URL=postgresql://user:pass@host:5432/cricket_intelligence  # Production
+DATABASE_URL=sqlite:///data/cricket_intelligence.db              # Local dev (SQLite)
+DATABASE_URL=postgresql://postgres.<ref>:<pass>@<host>:5432/postgres  # Production (Supabase)
 
 # CORS (comma-separated origins)
-CORS_ORIGINS=http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176
+CORS_ORIGINS=http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,http://localhost:3000,http://localhost:8080
 ```
 
 ### Frontend (`.env` or inline)
@@ -704,32 +834,54 @@ CORS_ORIGINS=http://localhost:5173,http://localhost:5174,http://localhost:5175,h
 VITE_API_URL=http://localhost:8000/api
 ```
 
+### Note on Supabase connection strings
+
+Supabase passwords may contain special characters (like `[` and `]`) that break URL parsing. If you encounter connection errors:
+
+1. URL-encode special characters: `[` → `%5B`, `]` → `%5D`
+2. Or use the **Session pooler** connection string (port `5432`) instead of the direct connection
+
 ---
 
 ## Deployment
 
 ### Target architecture
 
-| Component | Platform | Notes |
-|-----------|----------|-------|
-| Frontend | Vercel | Free tier, automatic deployments from Git |
-| Database | Supabase | Free PostgreSQL hosting |
-| API | Vercel Serverless / separate host | FastAPI compatible with serverless |
-| Pipeline | Local / GitHub Actions | Batch processing, not real-time |
+| Component | Platform | Cost | Notes |
+|-----------|----------|------|-------|
+| Frontend | Vercel | Free | Automatic deployments from Git |
+| Database | Supabase | Free | PostgreSQL hosting, 500 MB free tier |
+| API | Vercel Serverless / Railway | Free tier | FastAPI compatible |
+| Pipeline | Local / GitHub Actions | Free | Batch processing, not real-time |
 
 ### Frontend deployment (Vercel)
 
-```bash
-cd frontend
-# Vercel auto-detects Vite projects
-# Set VITE_API_URL environment variable in Vercel dashboard
-```
+1. Push code to GitHub
+2. Connect repository to Vercel
+3. Set environment variable: `VITE_API_URL` → your API endpoint
+4. Deploy
 
 ### Database setup (Supabase)
 
-1. Create a Supabase project
-2. Run `database/schema.sql` in the SQL editor
-3. Set `DATABASE_URL` environment variable
+1. Create a Supabase project at [supabase.com](https://supabase.com)
+2. Go to SQL Editor
+3. Run the contents of `database/schema.sql`
+4. Copy the connection string from Settings → Database
+5. Set `DATABASE_URL` in `.env`
+
+### Migrating data to Supabase
+
+```bash
+# 1. Process data locally (SQLite)
+python -m data_pipeline.pipeline.run --format ipl --sample 200
+
+# 2. Migrate to PostgreSQL
+python migrate_sqlite_to_pg.py
+
+# 3. Verify
+DATABASE_URL="postgresql://..." uvicorn backend.main:app --port 8000
+curl http://localhost:8000/api/players?limit=5
+```
 
 ---
 
@@ -738,14 +890,14 @@ cd frontend
 ### Running tests
 
 ```bash
-# Backend API smoke test
-DATABASE_URL="sqlite:///data/cricket_intelligence.db" python test_api_smoke.py
-
 # Frontend typecheck
 cd frontend && npx tsc --noEmit
 
 # Frontend build
 cd frontend && npx vite build
+
+# Backend API smoke test (with SQLite)
+DATABASE_URL="sqlite:///data/cricket_intelligence.db" python test_api_smoke.py
 ```
 
 ### Adding a new data source
@@ -758,19 +910,27 @@ cd frontend && npx vite build
 ### Database schema
 
 The full PostgreSQL schema is in `database/schema.sql`. Key design decisions:
-- UUID primary keys for all entities (stable internal IDs, not display names)
-- Foreign keys enforced at the database level
-- Analytical tables are denormalized for read performance
-- Indexes on frequently queried columns (player_id, team_id, format, date)
+- **UUID primary keys** for all entities (stable internal IDs, not display names)
+- **Foreign keys** enforced at the database level
+- **Analytical tables** are denormalized for read performance
+- **Indexes** on frequently queried columns (player_id, team_id, format, date)
+- **Views** (`v_player_summary`, `v_team_summary`) for quick cross-table queries
+- **Triggers** auto-update `updated_at` timestamps
 
-### Data pipeline design
+### SQLite ↔ PostgreSQL parity
 
-The pipeline follows the ETL pattern:
-- **Extract** — Download from Cricsheet
-- **Transform** — Parse, validate, normalize, compute analytics
-- **Load** — Write to database
+The pipeline uses dialect-aware SQL:
+- **SQLite:** `INSERT OR IGNORE` for idempotent inserts
+- **PostgreSQL:** `INSERT ... ON CONFLICT DO NOTHING`
+- **PostgreSQL only:** `TRUNCATE TABLE ... RESTART IDENTITY CASCADE` for analytical tables
 
-Each stage is independently testable and produces well-defined output.
+The `db_manager.py` auto-detects the dialect from the `DATABASE_URL`.
+
+### Known data artifacts
+
+- `data/raw/ipl/` — 1,244 extracted IPL match JSON files (~5 MB)
+- `data/cricket_intelligence.db` — SQLite database with 200 processed matches (16 MB)
+- `.env` — Contains DATABASE_URL for Supabase PostgreSQL (gitignored)
 
 ---
 

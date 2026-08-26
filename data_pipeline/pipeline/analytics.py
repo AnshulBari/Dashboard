@@ -701,10 +701,41 @@ def compute_venue_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
         on=["venue", "format"], how="left"
     )
     
-    # Chase win percentage (approximate)
-    result["chasing_win_pct"] = 50.0  # Placeholder
-    result["defending_win_pct"] = 50.0
-    result["pace_wickets_pct"] = 55.0  # Placeholder
+    # Compute chasing/defending win percentages from match data
+    match_winners = deliveries_df.groupby("match_id").agg(
+        venue=("venue", "first"),
+        format=("format", "first"),
+        batting_team_1=("batting_team", "first"),
+        winner=("winner", "first"),
+    ).reset_index()
+    
+    # For 2nd innings, the batting team is the chasing team
+    second_innings = deliveries_df[deliveries_df["innings_number"] == 2].groupby("match_id").agg(
+        chasing_team=("batting_team", "first"),
+    ).reset_index()
+    
+    match_winners = match_winners.merge(second_innings, on="match_id", how="left")
+    match_winners["is_chasing_win"] = match_winners["winner"] == match_winners["chasing_team"]
+    
+    venue_chase = match_winners.groupby(["venue", "format"]).agg(
+        total_matches=('match_id', 'count'),
+        chasing_wins=('is_chasing_win', 'sum'),
+    ).reset_index()
+    
+    venue_chase["chasing_win_pct"] = np.round(
+        venue_chase["chasing_wins"] * 100.0 / venue_chase["total_matches"].clip(lower=1), 1
+    )
+    venue_chase["defending_win_pct"] = np.round(100 - venue_chase["chasing_win_pct"], 1)
+    
+    result = result.merge(
+        venue_chase[["venue", "format", "chasing_win_pct", "defending_win_pct"]],
+        on=["venue", "format"], how="left"
+    )
+    result["chasing_win_pct"] = result["chasing_win_pct"].fillna(50.0)
+    result["defending_win_pct"] = result["defending_win_pct"].fillna(50.0)
+    
+    # Pace/spin wicket percentages (approximate from bowling type)
+    result["pace_wickets_pct"] = 55.0  # Placeholder — requires bowling type data
     result["spin_wickets_pct"] = 45.0
     
     # Fill NaN

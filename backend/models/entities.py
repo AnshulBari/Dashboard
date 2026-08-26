@@ -174,10 +174,23 @@ class PlayerBowlingStats(Base):
     dot_ball_pct = Column(Float)
     boundary_conceded_pct = Column(Float)
     
+    # Phase-specific bowling
+    powerplay_overs = Column(Float, default=0)
+    powerplay_wickets = Column(Integer, default=0)
+    powerplay_economy = Column(Float)
+    middle_overs = Column(Float, default=0)
+    middle_wickets = Column(Integer, default=0)
+    middle_economy = Column(Float)
+    death_overs = Column(Float, default=0)
+    death_wickets = Column(Integer, default=0)
+    death_economy = Column(Float)
+    
     calculated_at = Column(DateTime, default=datetime.utcnow)
     
     __table_args__ = (
         UniqueConstraint("player_id", "format", "period"),
+        Index("idx_pws_player", "player_id"),
+        Index("idx_pws_format_period", "format", "period"),
     )
 
 
@@ -226,6 +239,9 @@ class TeamPerformance(Base):
     avg_death_overs_score = Column(Float)
     avg_total_score = Column(Float)
     
+    chasing_win_pct = Column(Float)
+    defending_win_pct = Column(Float)
+    
     batting_strength_score = Column(Float)
     bowling_strength_score = Column(Float)
     overall_strength_score = Column(Float)
@@ -234,6 +250,8 @@ class TeamPerformance(Base):
     
     __table_args__ = (
         UniqueConstraint("team_id", "format", "period"),
+        Index("idx_tp_team", "team_id"),
+        Index("idx_tp_format_period", "format", "period"),
     )
 
 
@@ -251,6 +269,8 @@ class VenueStats(Base):
     lowest_total = Column(Integer)
     
     chasing_win_pct = Column(Float)
+    chasing_wins = Column(Integer, default=0)
+    defending_wins = Column(Integer, default=0)
     defending_win_pct = Column(Float)
     
     pace_wickets_pct = Column(Float)
@@ -264,10 +284,14 @@ class VenueStats(Base):
     avg_sixes_per_match = Column(Float)
     boundary_frequency = Column(Float)
     
+    toss_bat_first_win_pct = Column(Float)
+    toss_field_first_win_pct = Column(Float)
+    
     calculated_at = Column(DateTime, default=datetime.utcnow)
     
     __table_args__ = (
         UniqueConstraint("venue_id", "format"),
+        Index("idx_vs_venue", "venue_id"),
     )
 
 
