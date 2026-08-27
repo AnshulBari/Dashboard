@@ -270,7 +270,10 @@ class BatchRunner:
 
         match_id = data.get("match_id") or info.get("match_id") or ""
         match_date = info.get("date") or (info.get("dates", [""])[0] if info.get("dates") else "")
-        match_type = info.get("match_type", "")
+        # Use prepared_format from metadata if available (set by prepare.py)
+        # This handles Cricsheet T20I data where match_type='T20' but format should be 'T20I'
+        meta = data.get("meta", {})
+        match_type = meta.get("prepared_format") or info.get("match_type", "")
         venue = info.get("venue", "")
         city = info.get("city", "")
         teams = info.get("teams", [])

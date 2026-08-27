@@ -41,7 +41,9 @@ def flatten_match(data: dict, filename: str = "") -> list[dict]:
     
     # Match metadata
     match_date = (info.get("dates") or [""])[0]
-    match_type = info.get("match_type", "")
+    # Use prepared_format from metadata if available (set by prepare.py)
+    meta = data.get("meta", {})
+    match_type = meta.get("prepared_format") or info.get("match_type", "")
     venue = info.get("venue", "")
     city = info.get("city", "")
     teams = info.get("teams", [])

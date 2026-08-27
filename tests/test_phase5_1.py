@@ -22,9 +22,10 @@ from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 
 load_dotenv()
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL", "sqlite:///data/cricket_intelligence.db"
-)
+# IMPORTANT: Tests MUST use SQLite to avoid polluting the production database.
+# Phase 5.1 batch tests previously wrote to PostgreSQL/Supabase, causing orphaned
+# players and teams. Always use a test-specific SQLite database.
+DATABASE_URL = "sqlite:///data/test_phase5_1.db"
 
 DATA_DIR = Path("data/raw")
 
