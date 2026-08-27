@@ -531,6 +531,25 @@ python -m data_pipeline.pipeline.run --format t20i --sample 100
 python -m data_pipeline.pipeline.run --format ipl --force --sample 50
 ```
 
+### Batch processing (for large historical datasets)
+
+```bash
+# Process in batches of 250
+python -m data_pipeline.batch --format odi --batch-size 250
+
+# Resume from first failed/pending batch
+python -m data_pipeline.batch --format odi --resume
+
+# Process specific batch
+python -m data_pipeline.batch --format ipl --batch-size 100 --batch-id 3
+
+# Dry run (show batch boundaries without processing)
+python -m data_pipeline.batch --format odi --batch-size 250 --dry-run
+
+# Show batch status
+python -m data_pipeline.batch --status --formats odi t20i test
+```
+
 ### Pipeline stages
 
 ```
@@ -975,15 +994,18 @@ Merged "V Kohli" → "Virat Kohli" (15,005 FK updates, 0 orphans). Player name m
 
 Test cricket support validated with 5 fixtures (19 innings, 5,430 deliveries). 4-innings matches, draws, declarations, all-outs, follow-ons all working. Cross-format identity: Virat Kohli has T20 + T20I + ODI + Test stats. 215/215 tests passing.
 
-### Not yet implemented (Phase 5+)
+### Phase 5.1: Batch Processing Infrastructure ✅
 
-- Test cricket ingestion (4 innings, draws, declarations)
-- Full Cricsheet dataset ingestion (requires manual download)
+Production-grade batch ingestion infrastructure. PostgreSQL-backed batch manifest with checkpoint/resume. Deterministic batch splitting. Format-wide analytics. CLI with dry-run support. 236/236 tests passing.
+
+### Not yet implemented (Phase 5.2+)
+
+- Full Cricsheet historical dataset ingestion (requires manual download)
 - Win probability model
 - Player impact metric
 - Advanced frontend filters (format/competition/season selectors)
 
-See `docs/phase-3.md` for Phase 3 details.
+See `docs/phase-5.1.md` for Phase 5.1 details.
 
 ---
 

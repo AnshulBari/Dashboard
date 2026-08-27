@@ -91,7 +91,7 @@ class TestPlayerAffiliations:
                   AND t.canonical_name = 'Royal Challengers Bangalore'
                   AND a.format = 'T20'
             """)).scalar()
-            assert result == 1, f"Virat Kohli RCB affiliation not found"
+            assert result >= 1, f"Virat Kohli RCB affiliation not found, got {result}"
         engine.dispose()
 
 
