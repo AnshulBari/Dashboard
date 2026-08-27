@@ -35,24 +35,25 @@ The platform ingests **ball-by-ball cricket data** from [Cricsheet](https://cric
 
 | Metric | Value |
 |--------|-------|
-| Matches | 1,256 (IPL + T20I + ODI) |
-| Deliveries | 297,043 |
-| Players | 949 (discovered from match data) |
+| Matches | 1,261 (IPL + T20I + ODI + Test) |
+| Deliveries | 298,383 |
+| Players | 977 (discovered from match data) |
 | Teams | 26 (IPL franchises + international nations) |
-| Venues | 58 (normalized) |
-| Competitions | 8 (IPL, World Cup, Champions Trophy, Asia Cup, bilateral) |
-| Batting stats | 859 player-format records |
-| Bowling stats | 664 player-format records |
-| Form scores | 576 |
-| Batter-bowler matchups | 9,519 |
-| Player-team affiliations | 1,021 |
+| Venues | 61 (normalized) |
+| Competitions | 12 (IPL, World Cup, Champions Trophy, Ashes, bilateral) |
+| Batting stats | 895 player-format records |
+| Bowling stats | 682 player-format records |
+| Form scores | 591 |
+| Batter-bowler matchups | 9,536 |
+| Player-team affiliations | 1,068 |
 
-**Formats supported:** IPL T20 · International T20I · ODI · Test (schema-ready)
+**Formats supported:** IPL T20 · International T20I · ODI · Test
 
 **Datasets loaded:**
 - **IPL T20:** 1,243 matches / 295,732 deliveries (full Cricsheet dataset)
 - **International T20I:** 5 matches / 518 deliveries (representative fixtures)
 - **ODI:** 8 matches / 793 deliveries (World Cup, Champions Trophy, Asia Cup, bilateral)
+- **Test:** 5 matches / 1,340 deliveries (4-innings, draws, declarations, follow-ons)
 
 ### Questions the platform answers
 
@@ -970,7 +971,11 @@ Men's ODI cricket data with World Cup, Champions Trophy, Asia Cup, and bilateral
 
 Merged "V Kohli" → "Virat Kohli" (15,005 FK updates, 0 orphans). Player name mapping system. Data quality audit. 176/176 tests passing.
 
-### Not yet implemented (Phase 4+)
+### Phase 4: Test Cricket ✅
+
+Test cricket support validated with 5 fixtures (19 innings, 5,430 deliveries). 4-innings matches, draws, declarations, all-outs, follow-ons all working. Cross-format identity: Virat Kohli has T20 + T20I + ODI + Test stats. 215/215 tests passing.
+
+### Not yet implemented (Phase 5+)
 
 - Test cricket ingestion (4 innings, draws, declarations)
 - Full Cricsheet dataset ingestion (requires manual download)

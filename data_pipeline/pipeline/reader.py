@@ -156,6 +156,7 @@ def flatten_match(data: dict, filename: str = "") -> list[dict]:
                     "winner": winner,
                     "win_by_runs": win_by.get("runs") if isinstance(win_by, dict) else None,
                     "win_by_wickets": win_by.get("wickets") if isinstance(win_by, dict) else None,
+                    "win_by_innings": win_by.get("innings") if isinstance(win_by, dict) else None,
                     "player_of_match": player_of_match,
                     "innings_number": innings_idx + 1,  # 1-indexed
                     "over_number": over_number,
@@ -171,6 +172,10 @@ def flatten_match(data: dict, filename: str = "") -> list[dict]:
                     "wicket_type": wicket_type,
                     "dismissed_player": dismissed_player,
                     "fielder": fielder,
+                    # Test innings metadata
+                    "innings_declared": innings_data.get("declared", False),
+                    "innings_all_out": innings_data.get("all_out", False),
+                    "innings_follow_on": innings_data.get("follow_on", False),
                     # Registry IDs
                     "batter_id_ext": registry.get(batter, ""),
                     "bowler_id_ext": registry.get(bowler, ""),

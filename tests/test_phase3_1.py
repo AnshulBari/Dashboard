@@ -145,10 +145,10 @@ class TestPlayerIdentity:
             assert orphans == 0, f"{table}.{col} has {orphans} orphans"
 
     def test_player_count_after_merge(self, pg_conn):
-        """Player count should be 948 (was 949, minus 1 for V Kohli merge)."""
+        """Player count should be 977 (948 before Test + 29 Test players)."""
         from sqlalchemy import text
         count = pg_conn.execute(text("SELECT COUNT(*) FROM players")).scalar()
-        assert count == 948, f"Expected 948 players, got {count}"
+        assert count == 977, f"Expected 948 players, got {count}"
 
 
 # ============================================================

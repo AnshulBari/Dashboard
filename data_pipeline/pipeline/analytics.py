@@ -411,12 +411,16 @@ def compute_player_form_scores(deliveries_df: pd.DataFrame) -> pd.DataFrame:
             venue_score = 50
         
         # 5. Match situation (chasing avg / overall avg ratio)
-        chasing = player_data[player_data["innings_number"] == 2]
-        if len(chasing) >= 2 and mean_runs > 0:
-            chasing_avg = chasing["innings_runs"].mean()
-            situation_ratio = chasing_avg / mean_runs
-        else:
+        # For Test cricket, "chasing" concept is less meaningful — skip it
+        if fmt == "Test":
             situation_ratio = 1.0
+        else:
+            chasing = player_data[player_data["innings_number"] == 2]
+            if len(chasing) >= 2 and mean_runs > 0:
+                chasing_avg = chasing["innings_runs"].mean()
+                situation_ratio = chasing_avg / mean_runs
+            else:
+                situation_ratio = 1.0
         
         # 6. Efficiency (strike_rate * avg / 100)
         total_runs = player_data["innings_runs"].sum()
@@ -483,87 +487,71 @@ def compute_player_form_scores(deliveries_df: pd.DataFrame) -> pd.DataFrame:
 def compute_team_performance(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     """
     Compute team performance metrics from delivery data.
+    
+    Supports both limited-overs (T20/T20I/ODI) and Test cricket.
+    For Test cricket, aggregates all innings per team per match.
     """
     logger.info("Computing team performance metrics...")
     
-    # Get match-level results
-    match_results = deliveries_df.groupby(["match_id"]).agg(
-        team_a=("team_a", "first"),
-        team_b=("team_b", "first"),
-        batting_team=("batting_team", "first"),
-        batting_team_runs=("runs_total", "sum"),
-        format=("format", "first"),
-    ).reset_index()
-    
-    # Compute first and second innings totals
+    # Per-innings totals
     innings_totals = deliveries_df.groupby(["match_id", "innings_number"]).agg(
         batting_team=("batting_team", "first"),
         total_runs=("runs_total", "sum"),
-        total_wickets=("is_wicket", "sum"),
         format=("format", "first"),
     ).reset_index()
     
-    first_innings = innings_totals[innings_totals["innings_number"] == 1][
-        ["match_id", "batting_team", "total_runs", "format"]
-    ].rename(columns={"batting_team": "team_a_name", "total_runs": "team_a_score"})
+    # Match winner
+    match_winner = deliveries_df.groupby("match_id").agg(
+        winner=("winner", "first"),
+    ).reset_index()
     
-    second_innings = innings_totals[innings_totals["innings_number"] == 2][
-        ["match_id", "batting_team", "total_runs", "format"]
-    ].rename(columns={"batting_team": "team_b_name", "total_runs": "team_b_score"})
+    # Per-team aggregate score (sum across all innings in a match)
+    team_match_scores = innings_totals.groupby(["match_id", "batting_team"]).agg(
+        total_score=("total_runs", "sum"),
+        innings_count=("innings_number", "count"),
+        format=("format", "first"),
+    ).reset_index().rename(columns={"batting_team": "team"})
     
-    results = first_innings.merge(second_innings, on=["match_id", "format"], how="inner")
-    
-    # Determine winner
-    results["winner"] = np.where(
-        results["team_a_score"] > results["team_b_score"],
-        results["team_a_name"],
-        np.where(
-            results["team_b_score"] > results["team_a_score"],
-            results["team_b_name"],
-            None
-        )
-    )
-    results["is_chasing_win"] = results["winner"] == results["team_b_name"]
-    
-    # Explode to per-team perspective
-    team_a_perspective = results.rename(columns={
-        "team_a_name": "team", "team_a_score": "batting_score",
-        "team_b_score": "bowling_score",
-    })[["match_id", "format", "team", "batting_score", "bowling_score", "winner", "is_chasing_win"]]
-    team_a_perspective["is_first_innings"] = True
-    
-    team_b_perspective = results.rename(columns={
-        "team_b_name": "team", "team_b_score": "batting_score",
-        "team_a_score": "bowling_score",
-    })[["match_id", "format", "team", "batting_score", "bowling_score", "winner", "is_chasing_win"]]
-    team_b_perspective["is_first_innings"] = False
-    
-    all_perspectives = pd.concat([team_a_perspective, team_b_perspective], ignore_index=True)
+    team_perf_raw = team_match_scores.merge(match_winner, on="match_id", how="left")
+    team_perf_raw["won"] = team_perf_raw["winner"] == team_perf_raw["team"]
     
     # Aggregate by team and format
-    team_perf = all_perspectives.groupby(["team", "format"]).agg(
+    team_perf = team_perf_raw.groupby(["team", "format"]).agg(
         matches=("match_id", "nunique"),
-        wins=("winner", lambda x: (x == all_perspectives.loc[x.index, "team"]).sum()),
-        avg_batting_score=("batting_score", "mean"),
-        avg_bowling_score=("bowling_score", "mean"),
-        avg_first_innings=("batting_score", lambda x: x[all_perspectives.loc[x.index, "is_first_innings"]].mean()),
-        avg_second_innings=("batting_score", lambda x: x[~all_perspectives.loc[x.index, "is_first_innings"]].mean()),
+        wins=("won", "sum"),
+        avg_batting_score=("total_score", "mean"),
     ).reset_index()
     
     team_perf["losses"] = team_perf["matches"] - team_perf["wins"]
     team_perf["win_rate"] = np.round(team_perf["wins"] * 100.0 / team_perf["matches"].clip(lower=1), 2)
     
-    # Chasing vs defending
-    chasing_wins = all_perspectives[
-        all_perspectives["is_chasing_win"] & (all_perspectives["team"] == all_perspectives["winner"])
-    ].groupby(["team", "format"]).size().reset_index(name="chasing_wins")
+    # First/second innings averages (meaningful for limited-overs)
+    first_innings_avg = innings_totals[innings_totals["innings_number"] == 1].groupby(
+        ["batting_team", "format"]
+    ).agg(avg_first_innings_score=("total_runs", "mean")).reset_index().rename(columns={"batting_team": "team"})
     
-    chasing_attempts = all_perspectives[~all_perspectives["is_first_innings"]].groupby(
-        ["team", "format"]
-    ).size().reset_index(name="chasing_attempts")
+    second_innings_avg = innings_totals[innings_totals["innings_number"] == 2].groupby(
+        ["batting_team", "format"]
+    ).agg(avg_second_innings_score=("total_runs", "mean")).reset_index().rename(columns={"batting_team": "team"})
     
-    team_perf = team_perf.merge(chasing_wins, on=["team", "format"], how="left")
-    team_perf = team_perf.merge(chasing_attempts, on=["team", "format"], how="left")
+    team_perf = team_perf.merge(first_innings_avg, on=["team", "format"], how="left")
+    team_perf = team_perf.merge(second_innings_avg, on=["team", "format"], how="left")
+    
+    # Chasing vs defending (meaningful for limited-overs)
+    second_innings_teams = innings_totals[innings_totals["innings_number"] == 2][["match_id", "batting_team"]].rename(
+        columns={"batting_team": "chasing_team"}
+    )
+    match_chasing = match_winner.merge(second_innings_teams, on="match_id", how="left")
+    match_chasing["is_chasing_win"] = match_chasing["winner"] == match_chasing["chasing_team"]
+    
+    chasing_wins = match_chasing[match_chasing["is_chasing_win"]].groupby("chasing_team").size().reset_index(name="chasing_wins")
+    chasing_wins = chasing_wins.rename(columns={"chasing_team": "team"})
+    
+    chasing_attempts = second_innings_teams.groupby("chasing_team").size().reset_index(name="chasing_attempts")
+    chasing_attempts = chasing_attempts.rename(columns={"chasing_team": "team"})
+    
+    team_perf = team_perf.merge(chasing_wins, on="team", how="left")
+    team_perf = team_perf.merge(chasing_attempts, on="team", how="left")
     team_perf["chasing_wins"] = team_perf["chasing_wins"].fillna(0)
     team_perf["chasing_attempts"] = team_perf["chasing_attempts"].fillna(0)
     team_perf["chasing_win_pct"] = np.round(
@@ -582,16 +570,11 @@ def compute_team_performance(deliveries_df: pd.DataFrame) -> pd.DataFrame:
         balls=("ball_in_over", "count"),
         matches=("match_id", "nunique"),
     ).reset_index()
-    
     batting_phase["avg_runs_per_match"] = np.round(batting_phase["runs"] / batting_phase["matches"].clip(lower=1), 2)
     
-    # Pivot phases
     for phase in ["powerplay", "middle", "death"]:
         phase_rows = batting_phase[batting_phase["phase"] == phase][["batting_team", "format", "avg_runs_per_match"]]
-        phase_rows = phase_rows.rename(columns={
-            "batting_team": "team",
-            "avg_runs_per_match": f"avg_{phase}_score"
-        })
+        phase_rows = phase_rows.rename(columns={"batting_team": "team", "avg_runs_per_match": f"avg_{phase}_score"})
         team_perf = team_perf.merge(phase_rows, on=["team", "format"], how="left")
         team_perf[f"avg_{phase}_score"] = team_perf[f"avg_{phase}_score"].fillna(0)
     
@@ -602,35 +585,23 @@ def compute_team_performance(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     ).reset_index()
     team_bowling["avg_economy"] = np.where(
         team_bowling["total_balls"] > 0,
-        np.round(team_bowling["runs_conceded"] * 6.0 / team_bowling["total_balls"], 2),
-        0
+        np.round(team_bowling["runs_conceded"] * 6.0 / team_bowling["total_balls"], 2), 0
     )
     team_bowling = team_bowling.rename(columns={"bowling_team": "team"})
+    team_perf = team_perf.merge(team_bowling[["team", "format", "avg_economy"]], on=["team", "format"], how="left")
     
-    team_perf = team_perf.merge(
-        team_bowling[["team", "format", "avg_economy"]],
-        on=["team", "format"], how="left"
-    )
-    
-    # Strength scores (min-max normalized)
+    # Strength scores
     if len(team_perf) > 0:
         bat_min, bat_max = team_perf["avg_batting_score"].min(), team_perf["avg_batting_score"].max()
         econ_min, econ_max = team_perf["avg_economy"].min(), team_perf["avg_economy"].max()
-        
         bat_range = max(bat_max - bat_min, 1)
         econ_range = max(econ_max - econ_min, 1)
-        
-        team_perf["batting_strength_score"] = np.round(
-            (team_perf["avg_batting_score"] - bat_min) / bat_range * 100, 2
-        )
-        team_perf["bowling_strength_score"] = np.round(
-            (econ_max - team_perf["avg_economy"]) / econ_range * 100, 2
-        )
+        team_perf["batting_strength_score"] = np.round((team_perf["avg_batting_score"] - bat_min) / bat_range * 100, 2)
+        team_perf["bowling_strength_score"] = np.round((econ_max - team_perf["avg_economy"]) / econ_range * 100, 2)
         team_perf["overall_strength_score"] = np.round(
             0.35 * team_perf["batting_strength_score"].clip(0, 100) +
             0.35 * team_perf["bowling_strength_score"].clip(0, 100) +
-            0.30 * team_perf["win_rate"].clip(0, 100),
-            2
+            0.30 * team_perf["win_rate"].clip(0, 100), 2
         )
     
     team_perf["period"] = "career"

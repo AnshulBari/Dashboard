@@ -527,6 +527,9 @@ class DatabaseManager:
                 elif pd.notna(row.get("win_by_wickets")) and row["win_by_wickets"]:
                     win_margin = int(row["win_by_wickets"])
                     win_type = "wickets"
+                elif pd.notna(row.get("win_by_innings")) and row["win_by_innings"]:
+                    win_margin = int(row["win_by_innings"])
+                    win_type = "innings"
                 
                 # Determine result_type
                 result_type = row.get("result_type", "win") if "result_type" in df.columns else "win"
@@ -590,6 +593,9 @@ class DatabaseManager:
             total_wickets=("is_wicket", "sum"),
             max_over=("over_number", "max"),
             ball_count=("ball_in_over", "count"),
+            declared=("innings_declared", "first") if "innings_declared" in df.columns else ("is_wicket", "first"),
+            all_out=("innings_all_out", "first") if "innings_all_out" in df.columns else ("is_wicket", "first"),
+            follow_on=("innings_follow_on", "first") if "innings_follow_on" in df.columns else ("is_wicket", "first"),
         ).reset_index()
         
         count = 0
@@ -611,10 +617,16 @@ class DatabaseManager:
                 # Calculate overs: max_over + (last_ball / 6)
                 total_overs = float(row["max_over"]) + (row["ball_count"] % 6) / 10.0 if row["ball_count"] > 0 else 0
                 
+                # Determine Test-specific fields
+                declared = bool(row.get("declared", False))
+                all_out = bool(row.get("all_out", False))
+                follow_on = bool(row.get("follow_on", False))
+                
                 conn.execute(
                     text(self._upsert_sql("innings", "id", [
                         "match_id", "innings_number", "batting_team_id", "bowling_team_id",
-                        "total_runs", "total_wickets", "total_overs"
+                        "total_runs", "total_wickets", "total_overs",
+                        "declared", "all_out", "follow_on"
                     ])),
                     {
                         "id": innings_id,
@@ -625,6 +637,9 @@ class DatabaseManager:
                         "total_runs": int(row["total_runs"]),
                         "total_wickets": int(row["total_wickets"]),
                         "total_overs": round(total_overs, 1),
+                        "declared": declared,
+                        "all_out": all_out,
+                        "follow_on": follow_on,
                     }
                 )
                 
