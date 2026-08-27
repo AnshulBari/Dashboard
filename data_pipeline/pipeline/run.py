@@ -286,9 +286,30 @@ class CricketPipeline:
             self.db.write_analytics_table(write_df, "batter_bowler_matchups", format_filter=format_filter)
     
     def _resolve_player_ids(self, df: pd.DataFrame, name_col: str, target_col: str = "player_id") -> pd.DataFrame:
-        """Resolve player names to UUIDs in a DataFrame."""
+        """Resolve player names to UUIDs in a DataFrame.
+        
+        Uses a multi-step resolution:
+        1. Direct lookup in _player_ids cache (canonical name -> id)
+        2. Fallback via _player_name_mappings (source name -> canonical -> id)
+        3. If still unresolved, log and leave as None
+        """
         df = df.copy()
+        # Direct lookup
         df[target_col] = df[name_col].map(self.db._player_ids)
+        # Fallback: resolve via name mappings for unresolved names
+        unresolved_mask = df[target_col].isna() & df[name_col].notna() & (df[name_col] != "")
+        if unresolved_mask.any():
+            unresolved_names = df.loc[unresolved_mask, name_col].unique()
+            resolved = 0
+            for name in unresolved_names:
+                canonical = self.db._player_name_mappings.get(name)
+                if canonical and canonical in self.db._player_ids:
+                    df.loc[df[name_col] == name, target_col] = self.db._player_ids[canonical]
+                    resolved += 1
+            remaining = unresolved_mask.sum() - resolved
+            if remaining > 0:
+                remaining_names = df.loc[df[name_col].map(self.db._player_ids).isna() & df[name_col].notna(), name_col].unique()[:10]
+                logger.warning(f"  {remaining} rows unresolved in {name_col}. Examples: {list(remaining_names)}")
         return df
     
     def _resolve_team_ids(self, df: pd.DataFrame, name_col: str) -> pd.DataFrame:

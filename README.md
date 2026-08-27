@@ -1000,9 +1000,13 @@ Production-grade batch ingestion infrastructure. PostgreSQL-backed batch manifes
 
 ### Phase 5.2: Analytics Write Fix & Pipeline Hardening ✅
 
-Fixed critical analytics data loss bug where `to_sql()` silently failed on Supabase due to cross-connection transaction isolation. Rewrote `write_analytics_table` to use psycopg2 with small-batch DELETE/INSERT compatible with Supabase's statement timeout. 236/236 tests passing.
+Fixed critical analytics data loss bug where `to_sql()` silently failed on Supabase due to cross-connection transaction isolation. Rewrote `write_analytics_table` to use psycopg2 with small-batch DELETE/INSERT compatible with Supabase's statement timeout.
 
-### Not yet implemented (Phase 5.2 continued / Phase 6+)
+### Phase 5.2.1: Data Integrity & Player Identity Hardening ✅
+
+Hardened player identity pipeline with multi-step resolution (direct lookup + name mapping fallback). Created reusable data-quality audit (`python -m data_pipeline.audit`) with 78 integrity checks. Verified all analytics have zero NULL player IDs and zero orphaned records. Measured Supabase timeout behavior (INSERT ~1000 rows/s at batch=1000, DELETE ~8 rows/s). 272/272 tests passing.
+
+### Not yet implemented (Phase 5.3+)
 
 - Full Cricsheet historical dataset ingestion (requires manual download or Kaggle API)
 - Win probability model
