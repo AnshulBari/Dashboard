@@ -835,21 +835,93 @@ class DatabaseManager:
             df["id"] = [str(uuid.uuid4()) for _ in range(len(df))]
         
         try:
-            with self.engine.connect() as conn:
-                if format_filter:
-                    # Only delete rows for this format (preserves other formats)
-                    conn.execute(text(f"DELETE FROM {table_name} WHERE format = :fmt"), {"fmt": format_filter})
-                elif self.is_sqlite:
-                    conn.execute(text(f"DELETE FROM {table_name}"))
-                else:
-                    conn.execute(text(f"TRUNCATE TABLE {table_name} RESTART IDENTITY CASCADE"))
-                conn.commit()
-            
-            df.to_sql(
-                table_name, self.engine, if_exists="append",
-                index=False, method="multi", chunksize=1000,
-            )
-            logger.info(f"  Wrote {len(df)} rows to {table_name}")
+            if df.empty:
+                return
+
+            # Deduplicate by key columns to avoid constraint violations
+            # Each analytics table has unique key constraints
+            key_map = {
+                'player_batting_stats': ['player_id', 'format', 'period'],
+                'player_bowling_stats': ['player_id', 'format', 'period'],
+                'player_form': ['player_id', 'format'],
+                'team_performance': ['team_id', 'format', 'period'],
+                'venue_stats': ['venue_id', 'format'],
+                'batter_bowler_matchups': ['batter_id', 'bowler_id', 'format'],
+            }
+            if table_name in key_map:
+                keys = [k for k in key_map[table_name] if k in df.columns]
+                if keys:
+                    before_dedup = len(df)
+                    df = df.drop_duplicates(subset=keys, keep='first').reset_index(drop=True)
+                    if len(df) < before_dedup:
+                        logger.info(f"  Deduplicated {table_name}: {before_dedup} -> {len(df)} rows")
+
+            # Prepare data
+            cols = list(df.columns)
+            col_names = ', '.join([f'"{c}"' for c in cols])
+            placeholders = ', '.join(['%s' for _ in cols])
+            insert_sql = f"INSERT INTO {table_name} ({col_names}) VALUES ({placeholders})"
+
+            if not self.is_sqlite:
+                # PostgreSQL: delete + insert in small batches to stay within
+                # Supabase's server-side statement timeout.
+                from psycopg2.extras import execute_values
+                raw_conn = self.engine.raw_connection()
+                try:
+                    cursor = raw_conn.cursor()
+
+                    # Delete existing rows for format in small batches
+                    if format_filter:
+                        while True:
+                            cursor.execute(
+                                f"DELETE FROM {table_name} WHERE id IN "
+                                f"(SELECT id FROM {table_name} WHERE format = %s LIMIT 500)",
+                                (format_filter,)
+                            )
+                            if cursor.rowcount == 0:
+                                break
+                            raw_conn.commit()
+                    else:
+                        cursor.execute(f"DELETE FROM {table_name}")
+                        raw_conn.commit()
+
+                    # Prepare records
+                    df_clean = df.copy()
+                    for col in df_clean.columns:
+                        if df_clean[col].dtype.kind in ('i', 'f', 'u'):
+                            df_clean[col] = df_clean[col].apply(
+                                lambda x: x.item() if hasattr(x, 'item') else x
+                            )
+                    records = [tuple(None if (isinstance(v, float) and pd.isna(v)) else v for v in row)
+                               for row in df_clean.values]
+
+                    # Batch insert using execute_values (small page size)
+                    # execute_values needs 'VALUES %s' not individual placeholders
+                    ev_sql = f"INSERT INTO {table_name} ({col_names}) VALUES %s"
+                    batch_size = 200
+                    rows_written = 0
+                    for i in range(0, len(records), batch_size):
+                        batch = records[i:i+batch_size]
+                        execute_values(cursor, ev_sql, batch, page_size=batch_size)
+                        raw_conn.commit()
+                        rows_written += len(batch)
+                    logger.info(f"  Wrote {rows_written} rows to {table_name}")
+                finally:
+                    raw_conn.close()
+            else:
+                # SQLite path
+                with self.engine.connect() as conn:
+                    if format_filter:
+                        conn.execute(text(f"DELETE FROM {table_name} WHERE format = :fmt"), {"fmt": format_filter})
+                    else:
+                        conn.execute(text(f"DELETE FROM {table_name}"))
+                    conn.commit()
+                df.to_sql(
+                    table_name, self.engine, if_exists="append",
+                    index=False, method="multi", chunksize=1000,
+                )
+                rows_written = len(df)
+                logger.info(f"  Wrote {rows_written} rows to {table_name}")
         except Exception as e:
             logger.error(f"  Failed to write to {table_name}: {e}")
             raise

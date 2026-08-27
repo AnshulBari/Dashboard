@@ -996,16 +996,20 @@ Test cricket support validated with 5 fixtures (19 innings, 5,430 deliveries). 4
 
 ### Phase 5.1: Batch Processing Infrastructure ✅
 
-Production-grade batch ingestion infrastructure. PostgreSQL-backed batch manifest with checkpoint/resume. Deterministic batch splitting. Format-wide analytics. CLI with dry-run support. 236/236 tests passing.
+Production-grade batch ingestion infrastructure. PostgreSQL-backed batch manifest with checkpoint/resume. Deterministic batch splitting. Format-wide analytics. CLI with dry-run support.
 
-### Not yet implemented (Phase 5.2+)
+### Phase 5.2: Analytics Write Fix & Pipeline Hardening ✅
 
-- Full Cricsheet historical dataset ingestion (requires manual download)
+Fixed critical analytics data loss bug where `to_sql()` silently failed on Supabase due to cross-connection transaction isolation. Rewrote `write_analytics_table` to use psycopg2 with small-batch DELETE/INSERT compatible with Supabase's statement timeout. 236/236 tests passing.
+
+### Not yet implemented (Phase 5.2 continued / Phase 6+)
+
+- Full Cricsheet historical dataset ingestion (requires manual download or Kaggle API)
 - Win probability model
 - Player impact metric
 - Advanced frontend filters (format/competition/season selectors)
 
-See `docs/phase-5.1.md` for Phase 5.1 details.
+See `docs/phase-5.1.md` and `docs/phase-5.2.md` for details.
 
 ---
 
