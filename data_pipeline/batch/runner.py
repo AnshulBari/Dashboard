@@ -490,70 +490,76 @@ class BatchRunner:
     def _load_all_format_deliveries(self, format_type: str) -> pd.DataFrame:
         """Load ALL deliveries for a format from the database.
 
-        This is used to compute format-wide analytics when processing in batches.
-        The analytics engine needs to see ALL data for a format, not just the current batch.
+        Uses chunked loading to avoid Supabase statement timeouts.
+        Loads matches in groups of 500, then fetches deliveries for those matches.
         """
         try:
-            query = """
-                SELECT
-                    m.external_id as match_id,
-                    m.format,
-                    m.match_date,
-                    m.venue_id,
-                    m.team_a_id,
-                    m.team_b_id,
-                    m.toss_decision,
-                    m.winner_id,
-                    m.win_margin,
-                    m.win_type,
-                    m.result_type,
-                    i.innings_number,
-                    i.batting_team_id,
-                    i.bowling_team_id,
-                    i.declared,
-                    i.all_out,
-                    i.follow_on,
-                    d.over_number,
-                    d.ball_in_over,
-                    d.runs_bat as runs_batter,
-                    d.runs_extras,
-                    d.total_runs as runs_total,
-                    d.extra_type,
-                    d.is_wicket,
-                    d.wicket_type,
-                    p_striker.canonical_name as batter,
-                    p_bowler.canonical_name as bowler,
-                    p_ns.canonical_name as non_striker,
-                    p_dismissed.canonical_name as dismissed_player,
-                    t_bat.canonical_name as batting_team,
-                    t_bowl.canonical_name as bowling_team,
-                    t_a.canonical_name as team_a,
-                    t_b.canonical_name as team_b,
-                    t_bat.canonical_name as toss_winner,
-                    v.name as venue,
-                    v.city,
-                    m.toss_decision,
-                    m.win_margin as win_by_runs,
-                    m.win_type as win_by_wickets_type,
-                    t_winner.canonical_name as winner
-                FROM deliveries d
-                JOIN innings i ON d.innings_id = i.id
-                JOIN matches m ON d.match_id = m.id
-                LEFT JOIN players p_striker ON d.striker_id = p_striker.id
-                LEFT JOIN players p_bowler ON d.bowler_id = p_bowler.id
-                LEFT JOIN players p_ns ON d.non_striker_id = p_ns.id
-                LEFT JOIN players p_dismissed ON d.dismissed_player_id = p_dismissed.id
-                LEFT JOIN teams t_bat ON i.batting_team_id = t_bat.id
-                LEFT JOIN teams t_bowl ON i.bowling_team_id = t_bowl.id
-                LEFT JOIN teams t_a ON m.team_a_id = t_a.id
-                LEFT JOIN teams t_b ON m.team_b_id = t_b.id
-                LEFT JOIN teams t_winner ON m.winner_id = t_winner.id
-                LEFT JOIN venues v ON m.venue_id = v.id
-                WHERE m.format = :fmt
+            # First get all match IDs for this format
+            match_query = """
+                SELECT id FROM matches WHERE format = :fmt ORDER BY match_date
             """
             with self.db.engine.connect() as conn:
-                df = pd.read_sql(text(query), conn, params={"fmt": format_type})
-            logger.info(f"  Loaded {len(df)} deliveries for {format_type}")
+                match_ids = [r[0] for r in conn.execute(text(match_query), {"fmt": format_type}).fetchall()]
+
+            if not match_ids:
+                return pd.DataFrame()
+
+            logger.info(f"  Loading {len(match_ids)} {format_type} matches for analytics...")
+
+            # Load in chunks of 500 matches to avoid Supabase timeout
+            chunk_size = 500
+            all_chunks = []
+            for i in range(0, len(match_ids), chunk_size):
+                chunk_ids = match_ids[i:i+chunk_size]
+                placeholders = ','.join([f":id{j}" for j in range(len(chunk_ids))])
+                params = {f"id{j}": mid for j, mid in enumerate(chunk_ids)}
+
+                query = f"""
+                    SELECT
+                        m.external_id as match_id, m.format, m.match_date,
+                        m.venue_id, m.team_a_id, m.team_b_id,
+                        m.toss_decision, m.winner_id, m.win_margin,
+                        m.win_type, m.result_type,
+                        i.innings_number, i.batting_team_id, i.bowling_team_id,
+                        i.declared, i.all_out, i.follow_on,
+                        d.over_number, d.ball_in_over,
+                        d.runs_bat as runs_batter, d.runs_extras, d.total_runs as runs_total,
+                        d.extra_type, d.is_wicket, d.wicket_type,
+                        p_striker.canonical_name as batter,
+                        p_bowler.canonical_name as bowler,
+                        p_ns.canonical_name as non_striker,
+                        p_dismissed.canonical_name as dismissed_player,
+                        t_bat.canonical_name as batting_team,
+                        t_bowl.canonical_name as bowling_team,
+                        t_a.canonical_name as team_a,
+                        t_b.canonical_name as team_b,
+                        t_bat.canonical_name as toss_winner,
+                        v.name as venue, v.city,
+                        m.win_margin as win_by_runs,
+                        m.win_type as win_by_wickets_type,
+                        t_winner.canonical_name as winner
+                    FROM deliveries d
+                    JOIN innings i ON d.innings_id = i.id
+                    JOIN matches m ON d.match_id = m.id
+                    LEFT JOIN players p_striker ON d.striker_id = p_striker.id
+                    LEFT JOIN players p_bowler ON d.bowler_id = p_bowler.id
+                    LEFT JOIN players p_ns ON d.non_striker_id = p_ns.id
+                    LEFT JOIN players p_dismissed ON d.dismissed_player_id = p_dismissed.id
+                    LEFT JOIN teams t_bat ON i.batting_team_id = t_bat.id
+                    LEFT JOIN teams t_bowl ON i.bowling_team_id = t_bowl.id
+                    LEFT JOIN teams t_a ON m.team_a_id = t_a.id
+                    LEFT JOIN teams t_b ON m.team_b_id = t_b.id
+                    LEFT JOIN teams t_winner ON m.winner_id = t_winner.id
+                    LEFT JOIN venues v ON m.venue_id = v.id
+                    WHERE m.id IN ({placeholders})
+                """
+                with self.db.engine.connect() as conn:
+                    chunk_df = pd.read_sql(text(query), conn, params=params)
+                all_chunks.append(chunk_df)
+                logger.info(f"    Loaded chunk {i//chunk_size + 1}/{(len(match_ids)-1)//chunk_size + 1}: {len(chunk_df)} deliveries")
+
+            df = pd.concat(all_chunks, ignore_index=True) if all_chunks else pd.DataFrame()
+            logger.info(f"  Total loaded {len(df)} deliveries for {format_type}")
             return df
         except Exception as e:
             logger.warning(f"  Could not load format deliveries: {e}")

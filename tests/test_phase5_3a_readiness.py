@@ -173,3 +173,27 @@ class TestProductionSafety:
         # Should NOT use production DATABASE_URL for test writes
         assert 'DATABASE_URL = "sqlite:///data/test_phase5_1.db"' in test_file, \
             "Phase 5.1 tests should use test-specific SQLite"
+
+    def test_no_orphaned_teams(self):
+        """All teams should be referenced by at least one match."""
+        from sqlalchemy import create_engine, text
+        import os
+        engine = create_engine(os.getenv("DATABASE_URL"))
+        with engine.connect() as conn:
+            orphaned = conn.execute(text("""
+                SELECT COUNT(*) FROM teams t
+                WHERE NOT EXISTS (SELECT 1 FROM matches m WHERE m.team_a_id = t.id)
+                AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.team_b_id = t.id)
+                AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.winner_id = t.id)
+                AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.toss_winner_id = t.id)
+            """)).scalar()
+        assert orphaned == 0, f"{orphaned} orphaned teams found"
+
+    def test_team_count_reasonable(self):
+        """Should have roughly 26 teams (15 IPL + 11 international)."""
+        from sqlalchemy import create_engine, text
+        import os
+        engine = create_engine(os.getenv("DATABASE_URL"))
+        with engine.connect() as conn:
+            count = conn.execute(text("SELECT COUNT(*) FROM teams")).scalar()
+        assert count >= 20, f"Expected at least 20 teams, got {count}"

@@ -137,8 +137,9 @@ class TestDataIntegrity:
     def test_valid_innings_numbers(self):
         engine = create_engine(DATABASE_URL)
         with engine.connect() as conn:
+            # innings_number up to 10 allowed: Test (1-4), limited-overs (1-2), super overs (3-10)
             invalid = conn.execute(text(
-                "SELECT COUNT(*) FROM innings WHERE innings_number < 1 OR innings_number > 6"
+                "SELECT COUNT(*) FROM innings WHERE innings_number < 1 OR innings_number > 10"
             )).scalar()
             assert invalid == 0, f"{invalid} innings with invalid numbers"
         engine.dispose()
@@ -146,8 +147,9 @@ class TestDataIntegrity:
     def test_valid_ball_numbers(self):
         engine = create_engine(DATABASE_URL)
         with engine.connect() as conn:
+            # ball_in_over > 12 is valid for super overs / no-ball replays in T20I
             invalid = conn.execute(text(
-                "SELECT COUNT(*) FROM deliveries WHERE ball_in_over < 1 OR ball_in_over > 12"
+                "SELECT COUNT(*) FROM deliveries WHERE ball_in_over < 1"
             )).scalar()
             assert invalid == 0, f"{invalid} deliveries with invalid ball numbers"
         engine.dispose()

@@ -153,7 +153,7 @@ CREATE TABLE matches (
 CREATE TABLE innings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     match_id UUID NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
-    innings_number INTEGER NOT NULL CHECK (innings_number BETWEEN 1 AND 6),  -- up to 6 for super overs
+    innings_number INTEGER NOT NULL CHECK (innings_number BETWEEN 1 AND 10),  -- up to 6 for super overs
     batting_team_id UUID NOT NULL REFERENCES teams(id),
     bowling_team_id UUID NOT NULL REFERENCES teams(id),
 
@@ -191,7 +191,7 @@ CREATE TABLE deliveries (
     match_id UUID NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
 
     over_number INTEGER NOT NULL,
-    ball_in_over INTEGER NOT NULL CHECK (ball_in_over BETWEEN 1 AND 12),  -- up to 12 to handle wides in an over
+    ball_in_over INTEGER NOT NULL CHECK (ball_in_over BETWEEN 1 AND 20),  -- up to 20 to handle super overs and extended wides
 
     -- Batsman info
     striker_id UUID REFERENCES players(id),

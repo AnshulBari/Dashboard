@@ -178,9 +178,13 @@ The Phase 5.1 tests previously wrote orphaned players/teams to production. This 
 |-------|-------|
 | matches | 1,261 |
 | deliveries | 298,383 |
-| players | 957 |
-| teams | 87 |
+| players | 959 |
+| teams | 26 |
 | T20I matches | 5 |
 | ODI matches | 8 |
 | Test matches | 5 |
 | IPL matches | 1,243 |
+
+**Teams = 26**: 15 IPL franchises + 11 international teams (India, Australia, England, Pakistan, South Africa, Sri Lanka, New Zealand, West Indies, Zimbabwe, Bangladesh, Afghanistan).
+
+**Note**: Previous audit found 87 teams (61 orphaned associate nations). These were created by Phase 5.1 test batch runner writing to production PostgreSQL during test execution. Cleaned up by deleting teams not referenced by any match.

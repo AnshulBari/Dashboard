@@ -1,0 +1,29 @@
+{
+  "teams": 26,
+  "players": 959,
+  "venues": 336,
+  "competitions": 12,
+  "seasons": 28,
+  "matches": 1261,
+  "innings": 2559,
+  "deliveries": 298383,
+  "player_batting_stats": 895,
+  "player_bowling_stats": 681,
+  "player_form": 590,
+  "team_performance": 31,
+  "venue_stats": 41,
+  "batter_bowler_matchups": 9368,
+  "player_team_affiliations": 1844,
+  "player_name_mappings": 2,
+  "ipl_matches": 1243,
+  "ipl_deliveries": 295732,
+  "kohli_ipl_runs": 9346,
+  "t20i_matches": 5,
+  "t20i_deliveries": 518,
+  "matches_by_format": {
+    "ODI": 8,
+    "T20": 1243,
+    "T20I": 5,
+    "Test": 5
+  }
+}

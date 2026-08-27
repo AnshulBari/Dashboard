@@ -35,17 +35,17 @@ The platform ingests **ball-by-ball cricket data** from [Cricsheet](https://cric
 
 | Metric | Value |
 |--------|-------|
-| Matches | 1,261 (IPL + T20I + ODI + Test) |
-| Deliveries | 298,383 |
-| Players | 977 (discovered from match data) |
-| Teams | 26 (IPL franchises + international nations) |
-| Venues | 61 (normalized) |
+| Matches | 4,789 (1,243 IPL + 3,533 T20I + 8 ODI + 5 Test) |
+| Deliveries | 1,134,952 |
+| Players | 5,084 (discovered from match data) |
+| Teams | 125 (IPL franchises + international nations) |
+| Venues | 336 |
 | Competitions | 12 (IPL, World Cup, Champions Trophy, Ashes, bilateral) |
-| Batting stats | 895 player-format records |
-| Bowling stats | 682 player-format records |
-| Form scores | 591 |
-| Batter-bowler matchups | 9,536 |
-| Player-team affiliations | 1,068 |
+| Batting stats | 5,089 player-format records |
+| Bowling stats | 3,828 player-format records |
+| Form scores | 3,798 |
+| Batter-bowler matchups | 35,920 |
+| Player-team affiliations | 6,903 |
 
 **Formats supported:** IPL T20 · International T20I · ODI · Test
 
@@ -1004,16 +1004,26 @@ Fixed critical analytics data loss bug where `to_sql()` silently failed on Supab
 
 ### Phase 5.2.1: Data Integrity & Player Identity Hardening ✅
 
-Hardened player identity pipeline with multi-step resolution (direct lookup + name mapping fallback). Created reusable data-quality audit (`python -m data_pipeline.audit`) with 78 integrity checks. Verified all analytics have zero NULL player IDs and zero orphaned records. Measured Supabase timeout behavior (INSERT ~1000 rows/s at batch=1000, DELETE ~8 rows/s). 272/272 tests passing.
+Hardened player identity pipeline with multi-step resolution (direct lookup + name mapping fallback). Created reusable data-quality audit (`python -m data_pipeline.audit`) with 78 integrity checks. Verified all analytics have zero NULL player IDs and zero orphaned records. Measured Supabase timeout behavior (INSERT ~1000 rows/s at batch=1000, DELETE ~8 rows/s).
 
-### Not yet implemented (Phase 5.3+)
+### Phase 5.3A: Historical Dataset Preparation ✅
 
-- Full Cricsheet historical dataset ingestion (requires manual download or Kaggle API)
+Prepared the Cricsheet historical T20I dataset for ingestion. Created `prepare.py` to extract, filter (men's only), and remap T20I format codes. Validated 3,533 men's T20I match files.
+
+### Phase 5.3B: T20I Historical Pilot + Controlled Batch Ingestion ✅
+
+Successfully ingested 3,533 historical T20I matches (837,087 deliveries) through controlled batches of 250 matches. Resolved: innings_number constraint (super overs), analytics query timeout (chunked loading), 38 duplicate player identities, 236 missing affiliations. Full audit: 78 checks, 0 failures. 278/278 tests passing (+ 13 skipped). IPL regression preserved (1,243 matches / 295,732 deliveries / Kohli 9,346 runs).
+
+### Not yet implemented (Phase 5.4+)
+
+- Historical ODI dataset ingestion
+- Historical Test dataset ingestion
+- Full IPL historical expansion
 - Win probability model
 - Player impact metric
 - Advanced frontend filters (format/competition/season selectors)
 
-See `docs/phase-5.1.md` and `docs/phase-5.2.md` for details.
+See `docs/phase-5.1.md`, `docs/phase-5.2.md`, `docs/phase-5.3a.md`, and `docs/phase-5.3b.md` for details.
 
 ---
 

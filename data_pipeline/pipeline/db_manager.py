@@ -318,6 +318,15 @@ class DatabaseManager:
         if name in self._competition_ids:
             return self._competition_ids[name]
         
+        # Check if competition already exists
+        with self.engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT id FROM competitions WHERE name = :name"
+            ), {"name": name}).fetchone()
+            if row:
+                self._competition_ids[name] = str(row[0])
+                return str(row[0])
+        
         comp_id = self._new_id()
         
         with self.engine.connect() as conn:
@@ -338,6 +347,15 @@ class DatabaseManager:
         
         if not hasattr(self, '_season_ids'):
             self._season_ids = {}
+        
+        # Check if season already exists (by competition_id + name)
+        with self.engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT id FROM seasons WHERE competition_id = :cid AND name = :name"
+            ), {"cid": competition_id, "name": season_name}).fetchone()
+            if row:
+                self._season_ids[cache_key] = str(row[0])
+                return str(row[0])
         
         season_id = self._new_id()
         
@@ -734,15 +752,26 @@ class DatabaseManager:
         total = 0
         skipped = 0
         
-        # Load existing deliveries to avoid duplicates on rerun
+        # Load existing deliveries ONLY for matches in this batch (not all deliveries)
+        # This is critical for performance with large databases
         existing_deliveries = set()
         try:
-            with self.engine.connect() as conn:
-                rows = conn.execute(text(
-                    "SELECT innings_id, over_number, ball_in_over FROM deliveries"
-                )).fetchall()
-                for row in rows:
-                    existing_deliveries.add((str(row[0]), row[1], row[2]))
+            match_ids_in_batch = df["match_id"].unique()
+            if len(match_ids_in_batch) > 0:
+                # Convert external match IDs to DB IDs for efficient lookup
+                db_match_ids = [self._match_ids.get(str(mid)) for mid in match_ids_in_batch]
+                db_match_ids = [mid for mid in db_match_ids if mid]
+                if db_match_ids:
+                    with self.engine.connect() as conn:
+                        # Use chunked IN clause to avoid Supabase statement timeout
+                        for i in range(0, len(db_match_ids), 50):
+                            chunk = db_match_ids[i:i+50]
+                            placeholders = ",".join([f"'{mid}'" for mid in chunk])
+                            rows = conn.execute(text(
+                                f"SELECT innings_id, over_number, ball_in_over FROM deliveries WHERE match_id IN ({placeholders})"
+                            )).fetchall()
+                            for row in rows:
+                                existing_deliveries.add((str(row[0]), row[1], row[2]))
         except Exception:
             pass
         

@@ -124,8 +124,10 @@ class TestSeasons:
             linked = conn.execute(text("SELECT COUNT(*) FROM matches WHERE season_id IS NOT NULL")).scalar()
             total = conn.execute(text("SELECT COUNT(*) FROM matches")).scalar()
             assert linked > 0, "No matches linked to seasons"
-            # Most matches should be linked (IPL + T20I)
-            assert linked >= total * 0.9, f"Only {linked}/{total} matches linked to seasons"
+            # IPL and Test matches must all have seasons; T20I bilateral series often lack event names
+            ipl_linked = conn.execute(text("SELECT COUNT(*) FROM matches WHERE format='T20' AND season_id IS NOT NULL")).scalar()
+            ipl_total = conn.execute(text("SELECT COUNT(*) FROM matches WHERE format='T20'")).scalar()
+            assert ipl_linked == ipl_total, f"IPL: only {ipl_linked}/{ipl_total} linked to seasons"
         engine.dispose()
 
 

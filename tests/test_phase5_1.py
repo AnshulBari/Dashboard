@@ -125,6 +125,13 @@ class TestBatchManifest:
     @pytest.fixture(autouse=True)
     def setup(self):
         engine = create_engine(DATABASE_URL)
+        # batch_manifest uses uuid_generate_v4() which requires PostgreSQL
+        # Skip if using SQLite
+        if 'sqlite' in DATABASE_URL:
+            pytest.skip('batch_manifest tests require PostgreSQL')
+        from data_pipeline.batch.manifest import BatchManifest
+        manifest = BatchManifest(engine)
+        manifest.ensure_table()
         with engine.connect() as conn:
             conn.execute(text("DELETE FROM batch_manifest"))
             conn.commit()
@@ -255,6 +262,11 @@ class TestBatchProcessing:
     @pytest.fixture(autouse=True)
     def setup(self):
         engine = create_engine(DATABASE_URL)
+        if 'sqlite' in DATABASE_URL:
+            pytest.skip('batch_manifest tests require PostgreSQL')
+        from data_pipeline.batch.manifest import BatchManifest
+        manifest = BatchManifest(engine)
+        manifest.ensure_table()
         with engine.connect() as conn:
             conn.execute(text("DELETE FROM batch_manifest"))
             conn.commit()
@@ -379,6 +391,7 @@ class TestBatchProcessing:
 # ============================================================
 
 
+@pytest.mark.skipif('sqlite' in DATABASE_URL, reason='IPL regression requires PostgreSQL')
 class TestIPLRegression:
     """Verify IPL data is unchanged after batch processing."""
 
