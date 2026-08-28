@@ -1025,14 +1025,22 @@ Successfully ingested 2,577 historical men's ODI matches (1,477,207 deliveries) 
 
 Successfully ingested 897 historical men's Test matches (1,518,699 deliveries) through controlled batches of 250 matches. Fixed innings victory classification (168 matches corrected from 'runs' to 'innings' win_type). Recomputed full Test analytics (1,069 batting, 791 bowling) using batched INSERT...SELECT. Full audit: 78 checks, 0 failures. All 278+ tests passing. IPL/T20I/ODI regression preserved. Platform now supports 8,255 matches and 4.13M deliveries across all formats.
 
-### Not yet implemented (Phase 5.6+)
+### Phase 5.6A: Production Data Layer Optimization ✅
+
+Removed 4.13M delivery records from Supabase (1,110 MB → 143 MB, -87%). Created compact scorecard tables (match_batting_summary, match_bowling_summary) preserving per-player match statistics. Raw Cricsheet data retained offline as source of truth. Database now fits comfortably within Supabase Free Plan (500 MB limit).
+
+### Phase 5.6B: Serving Database Validation & API Hardening ✅
+
+Validated all 17 API endpoints operate deliveries-free. Verified scorecard correctness (100% coverage, global ratio 0.94-1.02). Confirmed format isolation, player identity, team entity sanity. Backend performance: all endpoints <200ms. 38 new validation tests. Full suite: 256 passed, 0 failed.
+
+### Not yet implemented (Phase 5.7+)
 
 - Win probability model
 - Player impact metric
 - Advanced frontend filters (format/competition/season selectors)
 - Frontend integration with live data
 
-See `docs/phase-5.1.md` through `docs/phase-5.5.md` for details.
+See `docs/phase-5.1.md` through `docs/phase-5.6b.md` for details.
 
 ---
 

@@ -732,8 +732,7 @@ CREATE INDEX idx_matches_team_b ON matches(team_b_id);
 
 CREATE INDEX idx_innings_match ON innings(match_id);
 
-CREATE INDEX idx_delivery_match ON deliveries(match_id);  -- single instance (no duplicate)
-CREATE INDEX idx_delivery_bowler ON deliveries(bowler_id);
+-- (deliveries table removed in Phase 5.6A — scorecard tables serve this role)
 
 CREATE INDEX idx_pform_score ON player_form(form_score DESC);
 CREATE INDEX idx_rankings_rating ON rankings(format, category, rating_points DESC);
