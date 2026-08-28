@@ -1033,6 +1033,10 @@ Removed 4.13M delivery records from Supabase (1,110 MB → 143 MB, -87%). Create
 
 Validated all 17 API endpoints operate deliveries-free. Verified scorecard correctness (100% coverage, global ratio 0.94-1.02). Confirmed format isolation, player identity, team entity sanity. Backend performance: all endpoints <200ms. 38 new validation tests. Full suite: 256 passed, 0 failed.
 
+### Phase 5.6C: Historical Data Integrity & Scorecard Reconciliation ✅
+
+Identified and fixed doubled scorecard values for 407 ODI/T20I matches (root cause: duplicated delivery processing during scorecard generation). Recomputed from authoritative Cricsheet JSON. Bowling reconciliation now 100% accurate across all formats. 20 new validation tests. Full suite: 276 passed, 0 failed.
+
 ### Not yet implemented (Phase 5.7+)
 
 - Win probability model
@@ -1040,7 +1044,7 @@ Validated all 17 API endpoints operate deliveries-free. Verified scorecard corre
 - Advanced frontend filters (format/competition/season selectors)
 - Frontend integration with live data
 
-See `docs/phase-5.1.md` through `docs/phase-5.6b.md` for details.
+See `docs/phase-5.1.md` through `docs/phase-5.6c.md` for details.
 
 ---
 
