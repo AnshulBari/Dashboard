@@ -559,14 +559,26 @@ class DatabaseManager:
                 total_deliveries = len(match_deliveries)
                 total_innings = int(match_deliveries["innings_number"].max()) if len(match_deliveries) > 0 else 2
                 
-                conn.execute(
-                    text(self._upsert_sql("matches", "id", [
+                # Use ON CONFLICT (external_id) to safely handle duplicates
+                match_sql = (
+                    "INSERT INTO matches (id, external_id, competition_id, season_id, venue_id, match_date, format, "
+                    "team_a_id, team_b_id, toss_winner_id, toss_decision, winner_id, win_margin, win_type, result_type, "
+                    "player_of_match_id, total_innings, total_deliveries) "
+                    "VALUES (:id, :external_id, :competition_id, :season_id, :venue_id, :match_date, :format, "
+                    ":team_a_id, :team_b_id, :toss_winner_id, :toss_decision, :winner_id, :win_margin, :win_type, :result_type, "
+                    ":player_of_match_id, :total_innings, :total_deliveries) "
+                    "ON CONFLICT (external_id) DO NOTHING"
+                    if not self.is_sqlite else
+                    self._upsert_sql("matches", "id", [
                         "external_id", "competition_id", "season_id", "venue_id", "match_date", "format",
                         "team_a_id", "team_b_id", "toss_winner_id", "toss_decision",
                         "winner_id", "win_margin", "win_type", "result_type",
                         "player_of_match_id",
                         "total_innings", "total_deliveries"
-                    ])),
+                    ])
+                )
+                conn.execute(
+                    text(match_sql),
                     {
                         "id": match_db_id,
                         "external_id": match_external_id,
@@ -589,7 +601,15 @@ class DatabaseManager:
                     }
                 )
                 
-                self._match_ids[match_external_id] = match_db_id
+                # If ON CONFLICT DO NOTHING fired, look up the existing DB id
+                existing = conn.execute(
+                    text("SELECT id FROM matches WHERE external_id = :eid"),
+                    {"eid": match_external_id}
+                ).fetchone()
+                if existing:
+                    self._match_ids[match_external_id] = existing[0]
+                else:
+                    self._match_ids[match_external_id] = match_db_id
                 count += 1
             
             conn.commit()

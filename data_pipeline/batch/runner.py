@@ -162,31 +162,22 @@ class BatchRunner:
                 df.groupby(["match_id", "innings_number"]).ngroups
             )
 
-            # Stage 6: Compute analytics for the ENTIRE format (not just this batch)
-            # This ensures analytics remain correct when processing in batches
+            # Stage 6: Compute analytics for this batch only.
+            # Full-format recomputation should be done separately after all batches complete.
             canonical_fmt = (
                 df["format"].mode().iloc[0]
                 if len(df) > 0
                 else format_type.upper()
             )
-            logger.info(f"[Batch {batch_id}] Computing analytics for ALL {canonical_fmt} data...")
-
-            # Load ALL deliveries for this format from the database for analytics
-            full_df = self._load_all_format_deliveries(canonical_fmt)
-            if full_df.empty:
-                # If no deliveries in DB yet, use the batch DataFrame
-                full_df = df
-                logger.info(f"[Batch {batch_id}] Using batch data for analytics (no prior data)")
-            else:
-                logger.info(f"[Batch {batch_id}] Loaded {len(full_df)} total deliveries for analytics")
+            logger.info(f"[Batch {batch_id}] Computing analytics for batch {batch_id}...")
 
             analytics = {}
-            analytics["batting"] = compute_player_batting_stats(full_df)
-            analytics["bowling"] = compute_player_bowling_stats(full_df)
-            analytics["form"] = compute_player_form_scores(full_df)
-            analytics["team"] = compute_team_performance(full_df)
-            analytics["venue"] = compute_venue_stats(full_df)
-            analytics["matchups"] = compute_matchups(full_df)
+            analytics["batting"] = compute_player_batting_stats(df)
+            analytics["bowling"] = compute_player_bowling_stats(df)
+            analytics["form"] = compute_player_form_scores(df)
+            analytics["team"] = compute_team_performance(df)
+            analytics["venue"] = compute_venue_stats(df)
+            analytics["matchups"] = compute_matchups(df)
 
             # Stage 7: Write analytics (format-scoped)
             logger.info(f"[Batch {batch_id}] Writing analytics...")

@@ -1014,16 +1014,19 @@ Prepared the Cricsheet historical T20I dataset for ingestion. Created `prepare.p
 
 Successfully ingested 3,533 historical T20I matches (837,087 deliveries) through controlled batches of 250 matches. Resolved: innings_number constraint (super overs), analytics query timeout (chunked loading), 38 duplicate player identities, 236 missing affiliations. Full audit: 78 checks, 0 failures. 278/278 tests passing (+ 13 skipped). IPL regression preserved (1,243 matches / 295,732 deliveries / Kohli 9,346 runs).
 
-### Not yet implemented (Phase 5.4+)
+### Phase 5.4: Historical ODI Dataset Ingestion ✅
 
-- Historical ODI dataset ingestion
+Successfully ingested 2,577 historical men's ODI matches (1,477,207 deliveries) through controlled batches of 250 matches. Recomputed full-format analytics from 52 chunks (50 matches each). Merged 34 duplicate player identities, 5 duplicate venues, and 13,835+ FK references. Full audit: 78 checks, 0 failures. 278/278 tests passing (+ 13 skipped). IPL/T20I/Test regression preserved. Platform now supports 7,358 matches and 2.61M deliveries across all formats.
+
+### Not yet implemented (Phase 5.5+)
+
 - Historical Test dataset ingestion
 - Full IPL historical expansion
 - Win probability model
 - Player impact metric
 - Advanced frontend filters (format/competition/season selectors)
 
-See `docs/phase-5.1.md`, `docs/phase-5.2.md`, `docs/phase-5.3a.md`, and `docs/phase-5.3b.md` for details.
+See `docs/phase-5.1.md`, `docs/phase-5.2.md`, `docs/phase-5.3a.md`, `docs/phase-5.3b.md`, and `docs/phase-5.4.md` for details.
 
 ---
 
