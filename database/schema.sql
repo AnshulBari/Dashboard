@@ -182,48 +182,54 @@ CREATE TABLE innings (
 );
 
 -- ============================================================
--- BALL-BY-BALL DATA
+-- MATCH-LEVEL SCORECARD SUMMARIES
+-- (Compact per-player match stats, replacing raw deliveries for serving)
 -- ============================================================
 
-CREATE TABLE deliveries (
+CREATE TABLE match_batting_summary (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    innings_id UUID NOT NULL REFERENCES innings(id) ON DELETE CASCADE,
     match_id UUID NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
-
-    over_number INTEGER NOT NULL,
-    ball_in_over INTEGER NOT NULL CHECK (ball_in_over BETWEEN 1 AND 20),  -- up to 20 to handle super overs and extended wides
-
-    -- Batsman info
-    striker_id UUID REFERENCES players(id),
-    non_striker_id UUID REFERENCES players(id),
+    innings_id UUID NOT NULL REFERENCES innings(id) ON DELETE CASCADE,
+    player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    batting_team_id UUID NOT NULL REFERENCES teams(id),
+    runs INTEGER DEFAULT 0,
+    balls INTEGER DEFAULT 0,
+    fours INTEGER DEFAULT 0,
+    sixes INTEGER DEFAULT 0,
+    strike_rate FLOAT,
+    is_not_out BOOLEAN DEFAULT FALSE,
+    dismissal_type VARCHAR(50),
     bowler_id UUID REFERENCES players(id),
-
-    -- Result
-    runs_bat INTEGER DEFAULT 0,
-    runs_extras INTEGER DEFAULT 0,
-    total_runs INTEGER DEFAULT 0,
-
-    -- Extra details
-    extra_type VARCHAR(20),       -- 'wide', 'noball', 'bye', 'legbye', 'penalty'
-
-    -- Dismissal
-    is_wicket BOOLEAN DEFAULT FALSE,
-    wicket_type VARCHAR(30),      -- 'bowled', 'caught', 'lbw', 'run_out', etc.
-    dismissed_player_id UUID REFERENCES players(id),
-    fielder_id UUID REFERENCES players(id),  -- future use
-
-    -- Computed (future use — pipeline doesn't populate these yet)
-    cumulative_runs INTEGER,
-    cumulative_wickets INTEGER,
-    current_over DECIMAL(4,1),
-
-    created_at TIMESTAMP DEFAULT NOW()
+    fielder_id UUID REFERENCES players(id),
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(match_id, innings_id, player_id)
 );
 
-CREATE INDEX idx_deliveries_innings ON deliveries(innings_id);
-CREATE INDEX idx_deliveries_match ON deliveries(match_id);
-CREATE INDEX idx_deliveries_striker ON deliveries(striker_id);
-CREATE INDEX idx_deliveries_bowler ON deliveries(bowler_id);
+CREATE INDEX idx_mbs_match ON match_batting_summary(match_id);
+CREATE INDEX idx_mbs_player ON match_batting_summary(player_id);
+CREATE INDEX idx_mbs_innings ON match_batting_summary(innings_id);
+
+CREATE TABLE match_bowling_summary (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    match_id UUID NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+    innings_id UUID NOT NULL REFERENCES innings(id) ON DELETE CASCADE,
+    player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    bowling_team_id UUID NOT NULL REFERENCES teams(id),
+    overs FLOAT DEFAULT 0,
+    balls_bowled INTEGER DEFAULT 0,
+    maidens INTEGER DEFAULT 0,
+    runs_conceded INTEGER DEFAULT 0,
+    wickets INTEGER DEFAULT 0,
+    economy FLOAT,
+    wides INTEGER DEFAULT 0,
+    noballs INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(match_id, innings_id, player_id)
+);
+
+CREATE INDEX idx_mbsb_match ON match_bowling_summary(match_id);
+CREATE INDEX idx_mbsb_player ON match_bowling_summary(player_id);
+CREATE INDEX idx_mbsb_innings ON match_bowling_summary(innings_id);
 
 -- ============================================================
 -- PLAYER IDENTITY MAPPING

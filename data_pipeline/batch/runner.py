@@ -483,8 +483,20 @@ class BatchRunner:
 
         Uses chunked loading to avoid Supabase statement timeouts.
         Loads matches in groups of 500, then fetches deliveries for those matches.
+        
+        Returns empty DataFrame if deliveries table does not exist (Phase 5.6a+).
         """
         try:
+            # Check if deliveries table exists
+            with self.db.engine.connect() as conn:
+                exists = conn.execute(text(
+                    "SELECT COUNT(*) FROM information_schema.tables "
+                    "WHERE table_name = 'deliveries' AND table_schema = 'public'"
+                )).scalar()
+                if not exists:
+                    logger.info("  Deliveries table not found — skipping full-format analytics")
+                    return pd.DataFrame()
+
             # First get all match IDs for this format
             match_query = """
                 SELECT id FROM matches WHERE format = :fmt ORDER BY match_date

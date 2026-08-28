@@ -84,6 +84,15 @@ class AuditRunner:
         self.engine = create_engine(self.database_url, echo=False)
         self.report = AuditReport()
     
+    def _table_exists(self, table_name: str) -> bool:
+        """Check if a table exists in the database."""
+        with self.engine.connect() as conn:
+            result = conn.execute(text(
+                "SELECT COUNT(*) FROM information_schema.tables "
+                "WHERE table_name = :name AND table_schema = 'public'"
+            ), {"name": table_name})
+            return result.scalar() > 0
+    
     def run_all(self) -> AuditReport:
         """Run all audit checks and return the report."""
         self.audit_players()
@@ -91,7 +100,9 @@ class AuditRunner:
         self.audit_venues()
         self.audit_matches()
         self.audit_innings()
-        self.audit_deliveries()
+        if self._table_exists("deliveries"):
+            self.audit_deliveries()
+        self.audit_scorecards()
         self.audit_analytics()
         self.audit_foreign_keys()
         self.audit_format_isolation()
@@ -348,8 +359,14 @@ class AuditRunner:
         cat = "Foreign Keys"
         checks = [
             ("innings", "match_id", "matches"),
-            ("deliveries", "innings_id", "innings"),
-            ("deliveries", "match_id", "matches"),
+            ("match_batting_summary", "match_id", "matches"),
+            ("match_batting_summary", "innings_id", "innings"),
+            ("match_batting_summary", "player_id", "players"),
+            ("match_batting_summary", "batting_team_id", "teams"),
+            ("match_bowling_summary", "match_id", "matches"),
+            ("match_bowling_summary", "innings_id", "innings"),
+            ("match_bowling_summary", "player_id", "players"),
+            ("match_bowling_summary", "bowling_team_id", "teams"),
             ("player_batting_stats", "player_id", "players"),
             ("player_bowling_stats", "player_id", "players"),
             ("player_form", "player_id", "players"),
@@ -376,6 +393,53 @@ class AuditRunner:
                 )).scalar()
                 self.report.add(cat, f"{child_table}.{fk_col} -> {parent_table}",
                               "FAIL" if rows > 0 else "PASS", rows)
+    
+    def audit_scorecards(self):
+        """Check scorecard summary table integrity."""
+        cat = "Scorecards"
+        if not self._table_exists("match_batting_summary"):
+            self.report.add(cat, "match_batting_summary exists", "WARN", 0)
+            return
+        if not self._table_exists("match_bowling_summary"):
+            self.report.add(cat, "match_bowling_summary exists", "WARN", 0)
+            return
+        with self.engine.connect() as conn:
+            # Batting summary row count
+            total = conn.execute(text(
+                "SELECT COUNT(*) FROM match_batting_summary"
+            )).scalar()
+            self.report.add(cat, "Batting summary rows", "PASS", total)
+            
+            # Bowling summary row count
+            total = conn.execute(text(
+                "SELECT COUNT(*) FROM match_bowling_summary"
+            )).scalar()
+            self.report.add(cat, "Bowling summary rows", "PASS", total)
+            
+            # NULL player_id in batting
+            rows = conn.execute(text(
+                "SELECT COUNT(*) FROM match_batting_summary WHERE player_id IS NULL"
+            )).scalar()
+            self.report.add(cat, "Batting NULL player_id",
+                          "FAIL" if rows > 0 else "PASS", rows)
+            
+            # NULL player_id in bowling
+            rows = conn.execute(text(
+                "SELECT COUNT(*) FROM match_bowling_summary WHERE player_id IS NULL"
+            )).scalar()
+            self.report.add(cat, "Bowling NULL player_id",
+                          "FAIL" if rows > 0 else "PASS", rows)
+            
+            # Verify batting matches innings count
+            rows = conn.execute(text(
+                "SELECT COUNT(DISTINCT match_id) FROM match_batting_summary"
+            )).scalar()
+            self.report.add(cat, "Batting matches covered", "PASS", rows)
+            
+            rows = conn.execute(text(
+                "SELECT COUNT(DISTINCT match_id) FROM match_bowling_summary"
+            )).scalar()
+            self.report.add(cat, "Bowling matches covered", "PASS", rows)
     
     def audit_format_isolation(self):
         """Verify analytics are properly format-scoped."""

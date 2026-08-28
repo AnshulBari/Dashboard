@@ -22,6 +22,14 @@ load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 
+def _table_exists(conn, table_name: str) -> bool:
+    result = conn.execute(text(
+        "SELECT COUNT(*) FROM information_schema.tables "
+        "WHERE table_name = :name AND table_schema = 'public'"
+    ), {"name": table_name})
+    return result.scalar() > 0
+
+
 # ============================================================
 # DATABASE TESTS
 # ============================================================
@@ -44,7 +52,8 @@ class TestDatabase:
         engine = create_engine(DATABASE_URL)
         expected = [
             "teams", "players", "venues", "competitions",
-            "matches", "innings", "deliveries",
+            "matches", "innings",
+            "match_batting_summary", "match_bowling_summary",
             "player_batting_stats", "player_bowling_stats",
             "player_form", "team_performance", "venue_stats",
             "batter_bowler_matchups",
@@ -62,8 +71,9 @@ class TestDatabase:
         engine = create_engine(DATABASE_URL)
         minimums = {
             "teams": 10, "players": 100, "venues": 10,
-            "matches": 100, "deliveries": 10000,
+            "matches": 100,
             "player_batting_stats": 50,
+            "match_batting_summary": 10000,
         }
         with engine.connect() as conn:
             for table, min_count in minimums.items():
@@ -82,6 +92,8 @@ class TestDataIntegrity:
     def test_no_orphaned_deliveries(self):
         engine = create_engine(DATABASE_URL)
         with engine.connect() as conn:
+            if not _table_exists(conn, "deliveries"):
+                pytest.skip("deliveries table removed in Phase 5.6a")
             orphans = conn.execute(text(
                 "SELECT COUNT(*) FROM deliveries d "
                 "LEFT JOIN innings i ON d.innings_id = i.id "
@@ -128,6 +140,8 @@ class TestDataIntegrity:
     def test_no_negative_runs(self):
         engine = create_engine(DATABASE_URL)
         with engine.connect() as conn:
+            if not _table_exists(conn, "deliveries"):
+                pytest.skip("deliveries table removed in Phase 5.6a")
             negatives = conn.execute(text(
                 "SELECT COUNT(*) FROM deliveries WHERE runs_bat < 0 OR total_runs < 0"
             )).scalar()
@@ -147,6 +161,8 @@ class TestDataIntegrity:
     def test_valid_ball_numbers(self):
         engine = create_engine(DATABASE_URL)
         with engine.connect() as conn:
+            if not _table_exists(conn, "deliveries"):
+                pytest.skip("deliveries table removed in Phase 5.6a")
             # ball_in_over > 12 is valid for super overs / no-ball replays in T20I
             invalid = conn.execute(text(
                 "SELECT COUNT(*) FROM deliveries WHERE ball_in_over < 1"

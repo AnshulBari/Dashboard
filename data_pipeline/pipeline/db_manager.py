@@ -771,7 +771,21 @@ class DatabaseManager:
         
         Skips deliveries that already exist (matched by innings_id + over + ball).
         Returns count of deliveries written.
+        
+        If the deliveries table does not exist (Phase 5.6a+), this is a no-op.
         """
+        # Check if deliveries table exists
+        try:
+            with self.engine.connect() as conn:
+                exists = conn.execute(text(
+                    "SELECT COUNT(*) FROM information_schema.tables "
+                    "WHERE table_name = 'deliveries' AND table_schema = 'public'"
+                )).scalar()
+                if not exists:
+                    return 0
+        except Exception:
+            return 0
+        
         total = 0
         skipped = 0
         

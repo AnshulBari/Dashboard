@@ -408,6 +408,59 @@ class BatterBowlerMatchup(Base):
     )
 
 
+class MatchBattingSummary(Base):
+    """Per-player match batting scorecard."""
+    __tablename__ = "match_batting_summary"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    match_id = Column(UUID(as_uuid=True), ForeignKey("matches.id", ondelete="CASCADE"), nullable=False)
+    innings_id = Column(UUID(as_uuid=True), ForeignKey("innings.id", ondelete="CASCADE"), nullable=False)
+    player_id = Column(UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
+    batting_team_id = Column(UUID(as_uuid=True), ForeignKey("teams.id"), nullable=False)
+    runs = Column(Integer, default=0)
+    balls = Column(Integer, default=0)
+    fours = Column(Integer, default=0)
+    sixes = Column(Integer, default=0)
+    strike_rate = Column(Float)
+    is_not_out = Column(Boolean, default=False)
+    dismissal_type = Column(String(50))
+    bowler_id = Column(UUID(as_uuid=True), ForeignKey("players.id"))
+    fielder_id = Column(UUID(as_uuid=True), ForeignKey("players.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        UniqueConstraint("match_id", "innings_id", "player_id"),
+        Index("idx_mbs_match", "match_id"),
+        Index("idx_mbs_player", "player_id"),
+    )
+
+
+class MatchBowlingSummary(Base):
+    """Per-player match bowling scorecard."""
+    __tablename__ = "match_bowling_summary"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    match_id = Column(UUID(as_uuid=True), ForeignKey("matches.id", ondelete="CASCADE"), nullable=False)
+    innings_id = Column(UUID(as_uuid=True), ForeignKey("innings.id", ondelete="CASCADE"), nullable=False)
+    player_id = Column(UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
+    bowling_team_id = Column(UUID(as_uuid=True), ForeignKey("teams.id"), nullable=False)
+    overs = Column(Float, default=0)
+    balls_bowled = Column(Integer, default=0)
+    maidens = Column(Integer, default=0)
+    runs_conceded = Column(Integer, default=0)
+    wickets = Column(Integer, default=0)
+    economy = Column(Float)
+    wides = Column(Integer, default=0)
+    noballs = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        UniqueConstraint("match_id", "innings_id", "player_id"),
+        Index("idx_mbsb_match", "match_id"),
+        Index("idx_mbsb_player", "player_id"),
+    )
+
+
 class PlayerTeamAffiliation(Base):
     """Links players to teams with format/competition context.
     

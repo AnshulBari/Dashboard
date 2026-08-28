@@ -48,11 +48,15 @@ The platform ingests **ball-by-ball cricket data** from [Cricsheet](https://cric
 
 **Formats supported:** IPL T20 · International T20I · ODI · Test
 
-**Datasets loaded:**
-- **IPL T20:** 1,243 matches / 295,732 deliveries (full Cricsheet dataset)
-- **International T20I:** 3,533 matches / 837,087 deliveries (full historical Cricsheet dataset)
-- **ODI:** 2,577 matches / 1,477,207 deliveries (full historical Cricsheet dataset)
-- **Test:** 897 matches / 1,518,699 deliveries (full historical Cricsheet dataset)
+**Datasets loaded (offline source of truth):**
+- **IPL T20:** 1,243 matches / 295,732 deliveries
+- **International T20I:** 3,533 matches / 837,087 deliveries
+- **ODI:** 2,577 matches / 1,477,207 deliveries
+- **Test:** 897 matches / 1,518,699 deliveries
+
+**Production database (compact serving layer):** 143 MB on Supabase Free Plan
+- All analytics, scorecards, and entity data served from compact tables
+- Raw ball-by-ball deliveries preserved offline in Cricsheet JSON
 
 ### Questions the platform answers
 
@@ -171,7 +175,7 @@ Cricsheet ZIP → Extract → data/raw/ipl/*.json (1,243 match files for IPL)
 
 Each JSON file contains:
 - `info` — Match metadata (teams, venue, date, toss, result, players, registry IDs)
-- `innings` — Ball-by-ball data organized by innings → overs → deliveries
+- `innings` — Innings-level summaries (runs, wickets, overs, declared, all_out, follow_on)
 
 ### Step 2: Parse & Flatten
 
@@ -230,7 +234,7 @@ The pipeline writes to the database in dependency order:
 4. **Competitions** → `competitions` table
 5. **Matches** → `matches` table (with FKs to teams, venue, competition)
 6. **Innings** → `innings` table (with FKs to match and batting/bowling teams)
-7. **Deliveries** → `deliveries` table (with FKs to innings, match, players)
+7. **Match Scorecards** → `match_batting_summary` / `match_bowling_summary` tables (compact per-player match stats)
 
 ### Step 6: Compute Analytics
 
@@ -296,10 +300,10 @@ The React dashboard displays the data through:
 
 | Layer | Technology | Why |
 |-------|-----------|-----|
-| **Data Pipeline** | Python + pandas | Handles Cricsheet volumes (~5M deliveries) in memory; no Java dependency |
+| **Data Pipeline** | Python + pandas | Processes Cricsheet data offline; compact analytics served from PostgreSQL |
 | **Data Ingestion** | Python `requests` | Simple HTTP download with checksum verification |
 | **Database (dev)** | SQLite | Zero setup, same SQL schema as PostgreSQL |
-| **Database (prod)** | PostgreSQL (Supabase) | Production-grade, free tier, 500 MB storage |
+| **Database (prod)** | PostgreSQL (Supabase) | Compact serving layer (143 MB), free tier, 500 MB limit |
 | **ORM** | SQLAlchemy 2.x | Database-agnostic queries, works with both SQLite and PostgreSQL |
 | **API** | FastAPI | Auto-generated docs, async support, Pydantic validation |
 | **Frontend** | React + TypeScript | Type-safe, component-based UI |
@@ -314,7 +318,7 @@ The React dashboard displays the data through:
 PySpark is included in the project as a reference implementation in `data_pipeline/spark/`. However, the primary pipeline uses **pandas** because:
 
 1. **No Java dependency** — PySpark historically required Java 8–17; PySpark 4.x now supports Java 23, but pandas remains simpler for current volumes
-2. **Adequate for current data volumes** — Cricsheet's full dataset (~5M deliveries) fits in memory
+2. **Adequate for current data volumes** — Cricsheet's full dataset (~4.1M deliveries) processes efficiently offline; production serves only compact analytics
 3. **Simpler debugging** — No JVM startup, no Spark UI, no serialized closures
 4. **Faster iteration** — Direct Python debugging, no `spark-submit`
 
@@ -404,7 +408,7 @@ cricket-intelligence/
 │       └── run_pipeline.py            # PySpark pipeline runner (reference)
 │
 ├── database/
-│   └── schema.sql                     # PostgreSQL schema (20 tables, 2 views, indexes)
+│   └── schema.sql                     # PostgreSQL schema (22 tables, compact serving layer)
 │
 ├── migrate_sqlite_to_pg.py            # SQLite → PostgreSQL migration tool
 │
