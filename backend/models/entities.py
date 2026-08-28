@@ -31,7 +31,7 @@ class Team(Base):
     canonical_name = Column(String(100), nullable=False, unique=True)
     short_name = Column(String(20), nullable=False)
     country = Column(String(100))
-    team_type = Column(String(50), default="franchise")  # 'national', 'franchise', 'domestic'
+    team_type = Column(String(50), default="national")  # 'national', 'franchise', 'composite'
     icc_id = Column(String(50))
     aliases = Column(ARRAY(Text))
     is_active = Column(Boolean, default=True)

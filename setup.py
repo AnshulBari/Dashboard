@@ -110,7 +110,7 @@ def _create_sqlite_schema(conn):
         canonical_name TEXT NOT NULL UNIQUE,
         short_name TEXT NOT NULL,
         country TEXT,
-        team_type TEXT DEFAULT 'franchise',
+        team_type TEXT DEFAULT 'national',
         is_active BOOLEAN DEFAULT 1,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 ZIP_PATHS = {
     "t20i": "data/raw/t20i/t20s_json.zip",
     "odi": "data/raw/odi/odis_json.zip",
-    "test": "data/raw/test/tests_json.zip",
+    "test": "data/raw/test/tests_male_json.zip",
 }
 
 
@@ -166,7 +166,7 @@ def _zip_filename(format_type: str) -> str:
     names = {
         "t20i": "t20s_json.zip",
         "odi": "odis_json.zip",
-        "test": "tests_json.zip",
+        "test": "tests_male_json.zip",
     }
     return names.get(format_type, f"{format_type}_json.zip")
 

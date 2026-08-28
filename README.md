@@ -35,25 +35,24 @@ The platform ingests **ball-by-ball cricket data** from [Cricsheet](https://cric
 
 | Metric | Value |
 |--------|-------|
-| Matches | 4,789 (1,243 IPL + 3,533 T20I + 8 ODI + 5 Test) |
-| Deliveries | 1,134,952 |
-| Players | 5,084 (discovered from match data) |
-| Teams | 125 (IPL franchises + international nations) |
-| Venues | 336 |
+| Matches | 8,255 (1,243 IPL + 3,533 T20I + 2,577 ODI + 897 Test) |
+| Deliveries | 4,130,065 |
+| Players | 5,734 (discovered from match data) |
+| Teams | 127 (14 IPL franchises + 110 national + 3 composite) |
+| Venues | 462 |
 | Competitions | 12 (IPL, World Cup, Champions Trophy, Ashes, bilateral) |
-| Batting stats | 5,089 player-format records |
-| Bowling stats | 3,828 player-format records |
-| Form scores | 3,798 |
-| Batter-bowler matchups | 35,920 |
-| Player-team affiliations | 6,903 |
+| Batting stats | 8,005 player-format records |
+| Bowling stats | 6,062 player-format records |
+| Batter-bowler matchups | 82,804 |
+| Player-team affiliations | 9,198 |
 
 **Formats supported:** IPL T20 · International T20I · ODI · Test
 
 **Datasets loaded:**
 - **IPL T20:** 1,243 matches / 295,732 deliveries (full Cricsheet dataset)
-- **International T20I:** 5 matches / 518 deliveries (representative fixtures)
-- **ODI:** 8 matches / 793 deliveries (World Cup, Champions Trophy, Asia Cup, bilateral)
-- **Test:** 5 matches / 1,340 deliveries (4-innings, draws, declarations, follow-ons)
+- **International T20I:** 3,533 matches / 837,087 deliveries (full historical Cricsheet dataset)
+- **ODI:** 2,577 matches / 1,477,207 deliveries (full historical Cricsheet dataset)
+- **Test:** 897 matches / 1,518,699 deliveries (full historical Cricsheet dataset)
 
 ### Questions the platform answers
 
@@ -1018,15 +1017,18 @@ Successfully ingested 3,533 historical T20I matches (837,087 deliveries) through
 
 Successfully ingested 2,577 historical men's ODI matches (1,477,207 deliveries) through controlled batches of 250 matches. Recomputed full-format analytics from 52 chunks (50 matches each). Merged 34 duplicate player identities, 5 duplicate venues, and 13,835+ FK references. Full audit: 78 checks, 0 failures. 278/278 tests passing (+ 13 skipped). IPL/T20I/Test regression preserved. Platform now supports 7,358 matches and 2.61M deliveries across all formats.
 
-### Not yet implemented (Phase 5.5+)
+### Phase 5.5: Historical Test Dataset Ingestion ✅
 
-- Historical Test dataset ingestion
-- Full IPL historical expansion
+Successfully ingested 897 historical men's Test matches (1,518,699 deliveries) through controlled batches of 250 matches. Fixed innings victory classification (168 matches corrected from 'runs' to 'innings' win_type). Recomputed full Test analytics (1,069 batting, 791 bowling) using batched INSERT...SELECT. Full audit: 78 checks, 0 failures. All 278+ tests passing. IPL/T20I/ODI regression preserved. Platform now supports 8,255 matches and 4.13M deliveries across all formats.
+
+### Not yet implemented (Phase 5.6+)
+
 - Win probability model
 - Player impact metric
 - Advanced frontend filters (format/competition/season selectors)
+- Frontend integration with live data
 
-See `docs/phase-5.1.md`, `docs/phase-5.2.md`, `docs/phase-5.3a.md`, `docs/phase-5.3b.md`, and `docs/phase-5.4.md` for details.
+See `docs/phase-5.1.md` through `docs/phase-5.5.md` for details.
 
 ---
 

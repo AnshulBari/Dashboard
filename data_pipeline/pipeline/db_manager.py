@@ -537,17 +537,20 @@ class DatabaseManager:
                     match_date = match_date.date()
                 
                 # Determine win type and margin
+                # NOTE: check innings BEFORE runs/wickets because Cricsheet
+                # nests innings victories as {'innings': 1, 'runs': N} where
+                # both keys are present. Innings must take priority.
                 win_margin = None
                 win_type = None
-                if pd.notna(row.get("win_by_runs")) and row["win_by_runs"]:
+                if pd.notna(row.get("win_by_innings")) and row["win_by_innings"]:
+                    win_margin = int(row["win_by_innings"])
+                    win_type = "innings"
+                elif pd.notna(row.get("win_by_runs")) and row["win_by_runs"]:
                     win_margin = int(row["win_by_runs"])
                     win_type = "runs"
                 elif pd.notna(row.get("win_by_wickets")) and row["win_by_wickets"]:
                     win_margin = int(row["win_by_wickets"])
                     win_type = "wickets"
-                elif pd.notna(row.get("win_by_innings")) and row["win_by_innings"]:
-                    win_margin = int(row["win_by_innings"])
-                    win_type = "innings"
                 
                 # Determine result_type
                 result_type = row.get("result_type", "win") if "result_type" in df.columns else "win"

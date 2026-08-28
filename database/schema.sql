@@ -27,7 +27,7 @@ CREATE TABLE teams (
     canonical_name VARCHAR(100) NOT NULL UNIQUE,
     short_name VARCHAR(20) NOT NULL,
     country VARCHAR(100),
-    team_type VARCHAR(50) DEFAULT 'franchise',  -- 'national', 'franchise', 'domestic'
+    team_type VARCHAR(50) DEFAULT 'national',  -- 'national', 'franchise', 'composite'
     icc_id VARCHAR(50),           -- ICC official identifier (future use)
     aliases TEXT[],               -- alternative names for matching (future use)
     is_active BOOLEAN DEFAULT TRUE,

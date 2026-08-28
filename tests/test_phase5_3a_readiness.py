@@ -35,7 +35,7 @@ class TestZipIntegrity:
         assert (DATA_DIR / "odi" / "odis_json.zip").exists()
 
     def test_test_zip_exists(self):
-        assert (DATA_DIR / "test" / "tests_json.zip").exists()
+        assert (DATA_DIR / "test" / "tests_male_json.zip").exists()
 
     def test_t20i_zip_valid(self):
         zf = DATA_DIR / "t20i" / "t20s_json.zip"
