@@ -31,9 +31,10 @@ logger = logging.getLogger(__name__)
 
 class LiveCache:
     """
-    Short-lived in-memory cache for live data.
+    Short-lived in-memory cache for live data with request coalescing.
 
     Designed for ~30-second refresh intervals.
+    Includes single-flight protection to prevent duplicate provider calls.
     """
 
     def __init__(self, ttl_seconds: int = 30):
@@ -46,6 +47,7 @@ class LiveCache:
         self.ttl_seconds = ttl_seconds
         self._cache: dict = {}
         self._timestamps: dict = {}
+        self._in_flight: dict = {}  # key -> bool for request coalescing
         self._lock = Lock()
 
     def get(self, key: str) -> Optional[dict]:
@@ -63,13 +65,50 @@ class LiveCache:
             if time.time() - timestamp > self.ttl_seconds:
                 return None  # Stale
 
-            return self._cache[key]
+            # Return a copy to prevent mutation of cached data
+            return dict(self._cache[key])
+
+    def get_stale(self, key: str) -> Optional[dict]:
+        """
+        Get last known data even if stale.
+        
+        Used as fallback when provider fails.
+
+        Returns:
+            Last known cached data or None if never fetched
+        """
+        with self._lock:
+            if key not in self._cache:
+                return None
+            # Return a copy to prevent mutation
+            return dict(self._cache[key])
 
     def set(self, key: str, data: dict):
         """Store data in cache."""
         with self._lock:
             self._cache[key] = data
             self._timestamps[key] = time.time()
+            # Clear in-flight marker
+            self._in_flight.pop(key, None)
+
+    def get_or_set_inflight(self, key: str) -> bool:
+        """
+        Check if request is already in flight, or mark it as in-flight.
+        
+        Returns:
+            True if request was already in flight (caller should wait),
+            False if this caller should proceed with the fetch.
+        """
+        with self._lock:
+            if key in self._in_flight:
+                return True  # Already fetching
+            self._in_flight[key] = True
+            return False
+
+    def clear_inflight(self, key: str):
+        """Clear in-flight marker for a key."""
+        with self._lock:
+            self._in_flight.pop(key, None)
 
     def is_stale(self, key: str) -> bool:
         """Check if cached data is stale."""
@@ -88,6 +127,7 @@ class LiveCache:
         with self._lock:
             self._cache.clear()
             self._timestamps.clear()
+            self._in_flight.clear()
 
 
 class LiveService:
@@ -121,31 +161,57 @@ class LiveService:
         self.cache = LiveCache(ttl_seconds=cache_ttl)
 
     def _map_team_id(self, name: str, conn) -> Optional[str]:
-        """Map an external team name to canonical team ID."""
+        """
+        Map an external team name to canonical team ID.
+        
+        Uses safe mapping strategy - returns None for ambiguous matches.
+        """
         try:
-            # Try exact match
+            # Try exact canonical_name match
             result = conn.execute(
-                text("SELECT id FROM teams WHERE canonical_name = :name LIMIT 1"),
+                text("SELECT id FROM teams WHERE canonical_name = :name LIMIT 2"),
                 {"name": name}
-            ).fetchone()
-            if result:
-                return str(result[0])
+            ).fetchall()
+            
+            if len(result) == 1:
+                return str(result[0][0])
+            elif len(result) > 1:
+                logger.warning(f"Ambiguous team mapping for '{name}': {len(result)} matches")
+                return None
 
-            # Try short name
+            # Try exact short_name match
             result = conn.execute(
-                text("SELECT id FROM teams WHERE short_name = :name LIMIT 1"),
+                text("SELECT id FROM teams WHERE short_name = :name LIMIT 2"),
                 {"name": name}
-            ).fetchone()
-            if result:
-                return str(result[0])
+            ).fetchall()
+            
+            if len(result) == 1:
+                return str(result[0][0])
+            elif len(result) > 1:
+                return None
 
-            # Try partial match
+            # Try case-insensitive match
             result = conn.execute(
-                text("SELECT id FROM teams WHERE canonical_name LIKE :pattern LIMIT 1"),
+                text("SELECT id FROM teams WHERE LOWER(canonical_name) = LOWER(:name) LIMIT 2"),
+                {"name": name}
+            ).fetchall()
+            
+            if len(result) == 1:
+                return str(result[0][0])
+            elif len(result) > 1:
+                return None
+
+            # Try partial match - ONLY if exactly 1 result
+            result = conn.execute(
+                text("SELECT id FROM teams WHERE canonical_name LIKE :pattern LIMIT 3"),
                 {"pattern": f"%{name}%"}
-            ).fetchone()
-            if result:
-                return str(result[0])
+            ).fetchall()
+            
+            if len(result) == 1:
+                return str(result[0][0])
+            elif len(result) > 1:
+                logger.warning(f"Ambiguous partial team mapping for '{name}': {len(result)} matches")
+                return None
 
             return None
         except Exception as e:
@@ -153,21 +219,46 @@ class LiveService:
             return None
 
     def _map_player_id(self, name: str, conn) -> Optional[str]:
-        """Map an external player name to canonical player ID."""
+        """
+        Map an external player name to canonical player ID.
+        
+        Uses safe mapping strategy - returns None for ambiguous matches.
+        """
         try:
+            # Try exact match first
             result = conn.execute(
-                text("SELECT id FROM players WHERE canonical_name = :name LIMIT 1"),
+                text("SELECT id FROM players WHERE canonical_name = :name LIMIT 2"),
                 {"name": name}
-            ).fetchone()
-            if result:
-                return str(result[0])
+            ).fetchall()
+            
+            if len(result) == 1:
+                return str(result[0][0])
+            elif len(result) > 1:
+                logger.warning(f"Ambiguous player mapping for '{name}': {len(result)} matches")
+                return None
 
+            # Try case-insensitive match
             result = conn.execute(
-                text("SELECT id FROM players WHERE canonical_name LIKE :pattern LIMIT 1"),
+                text("SELECT id FROM players WHERE LOWER(canonical_name) = LOWER(:name) LIMIT 2"),
+                {"name": name}
+            ).fetchall()
+            
+            if len(result) == 1:
+                return str(result[0][0])
+            elif len(result) > 1:
+                return None
+
+            # Try partial match - ONLY if exactly 1 result
+            result = conn.execute(
+                text("SELECT id FROM players WHERE canonical_name LIKE :pattern LIMIT 3"),
                 {"pattern": f"%{name}%"}
-            ).fetchone()
-            if result:
-                return str(result[0])
+            ).fetchall()
+            
+            if len(result) == 1:
+                return str(result[0][0])
+            elif len(result) > 1:
+                logger.warning(f"Ambiguous partial player mapping for '{name}': {len(result)} matches")
+                return None
 
             return None
         except Exception as e:
@@ -266,6 +357,9 @@ class LiveService:
     def get_live_matches(self, force_refresh: bool = False) -> dict:
         """
         Get current live/upcoming matches.
+        
+        Uses request coalescing to prevent multiple concurrent provider calls.
+        Returns stale data as fallback when provider fails.
 
         Args:
             force_refresh: Force refresh from provider
@@ -275,7 +369,7 @@ class LiveService:
         """
         cache_key = "live_matches"
 
-        # Check cache first
+        # Check cache first (return copy to prevent mutation)
         if not force_refresh:
             cached = self.cache.get(cache_key)
             if cached:
@@ -283,31 +377,66 @@ class LiveService:
                 cached["stale"] = False
                 return cached
 
-        # Fetch from provider
-        matches = self.provider.get_live_matches()
+        # Request coalescing: if another thread is already fetching, return stale data
+        if self.cache.get_or_set_inflight(cache_key):
+            stale = self.cache.get_stale(cache_key)
+            if stale:
+                stale["cached"] = True
+                stale["stale"] = True
+                return stale
+            # No stale data, wait briefly then retry
+            time.sleep(0.1)
+            cached = self.cache.get(cache_key)
+            if cached:
+                cached["cached"] = True
+                cached["stale"] = False
+                return cached
 
-        # Map entities if database is available
-        if self.db_engine and matches:
-            try:
-                with self.db_engine.connect() as conn:
-                    matches = [self._map_match_entities(m, conn) for m in matches]
-            except Exception as e:
-                logger.error(f"Entity mapping failed: {e}")
+        try:
+            # Fetch from provider
+            matches = self.provider.get_live_matches()
 
-        # Build response
-        result = {
-            "matches": [self._match_to_dict(m) for m in matches],
-            "total": len(matches),
-            "source": matches[0].source if matches else None,
-            "fetched_at": matches[0].fetched_at.isoformat() if matches and matches[0].fetched_at else None,
-            "cached": False,
-            "stale": False,
-        }
+            # Map entities if database is available
+            if self.db_engine and matches:
+                try:
+                    with self.db_engine.connect() as conn:
+                        matches = [self._map_match_entities(m, conn) for m in matches]
+                except Exception as e:
+                    logger.error(f"Entity mapping failed: {e}")
 
-        # Cache the result
-        self.cache.set(cache_key, result)
+            # Build response
+            result = {
+                "matches": [self._match_to_dict(m) for m in matches],
+                "total": len(matches),
+                "source": matches[0].source if matches else None,
+                "fetched_at": matches[0].fetched_at.isoformat() if matches and matches[0].fetched_at else None,
+                "cached": False,
+                "stale": False,
+            }
 
-        return result
+            # Cache the result
+            self.cache.set(cache_key, result)
+
+            return result
+        except Exception as e:
+            # On failure, return stale data if available
+            self.cache.clear_inflight(cache_key)
+            stale = self.cache.get_stale(cache_key)
+            if stale:
+                logger.warning(f"Provider failed, returning stale data: {e}")
+                stale["cached"] = True
+                stale["stale"] = True
+                return stale
+            # Return empty result on first failure
+            return {
+                "matches": [],
+                "total": 0,
+                "source": None,
+                "fetched_at": None,
+                "cached": False,
+                "stale": False,
+                "error": str(e),
+            }
 
     def get_match_detail(
         self,
@@ -316,6 +445,8 @@ class LiveService:
     ) -> Optional[dict]:
         """
         Get detailed live match state.
+        
+        Uses request coalescing to prevent multiple concurrent provider calls.
 
         Args:
             match_id: Match identifier
@@ -326,7 +457,7 @@ class LiveService:
         """
         cache_key = f"match_{match_id}"
 
-        # Check cache first
+        # Check cache first (return copy to prevent mutation)
         if not force_refresh:
             cached = self.cache.get(cache_key)
             if cached:
@@ -334,31 +465,56 @@ class LiveService:
                 cached["stale"] = False
                 return cached
 
-        # Fetch from provider
-        detail = self.provider.get_match_detail(match_id)
+        # Request coalescing
+        if self.cache.get_or_set_inflight(cache_key):
+            stale = self.cache.get_stale(cache_key)
+            if stale:
+                stale["cached"] = True
+                stale["stale"] = True
+                return stale
+            time.sleep(0.1)
+            cached = self.cache.get(cache_key)
+            if cached:
+                cached["cached"] = True
+                cached["stale"] = False
+                return cached
 
-        if not detail:
+        try:
+            # Fetch from provider
+            detail = self.provider.get_match_detail(match_id)
+
+            if not detail:
+                self.cache.clear_inflight(cache_key)
+                return None
+
+            # Map entities if database is available
+            if self.db_engine:
+                try:
+                    with self.db_engine.connect() as conn:
+                        detail = self._map_detail_entities(detail, conn)
+                except Exception as e:
+                    logger.error(f"Entity mapping failed: {e}")
+
+            # Build response
+            result = self._detail_to_dict(detail)
+            result["source"] = detail.source
+            result["fetched_at"] = detail.fetched_at.isoformat() if detail.fetched_at else None
+            result["cached"] = False
+            result["stale"] = False
+
+            # Cache the result
+            self.cache.set(cache_key, result)
+
+            return result
+        except Exception as e:
+            self.cache.clear_inflight(cache_key)
+            stale = self.cache.get_stale(cache_key)
+            if stale:
+                logger.warning(f"Provider failed, returning stale data: {e}")
+                stale["cached"] = True
+                stale["stale"] = True
+                return stale
             return None
-
-        # Map entities if database is available
-        if self.db_engine:
-            try:
-                with self.db_engine.connect() as conn:
-                    detail = self._map_detail_entities(detail, conn)
-            except Exception as e:
-                logger.error(f"Entity mapping failed: {e}")
-
-        # Build response
-        result = self._detail_to_dict(detail)
-        result["source"] = detail.source
-        result["fetched_at"] = detail.fetched_at.isoformat() if detail.fetched_at else None
-        result["cached"] = False
-        result["stale"] = False
-
-        # Cache the result
-        self.cache.set(cache_key, result)
-
-        return result
 
     def is_available(self) -> bool:
         """Check if the live data provider is available."""

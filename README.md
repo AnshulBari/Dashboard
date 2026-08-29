@@ -1061,6 +1061,10 @@ Comprehensive 15-objective audit proving the serving database is production-read
 
 Added ICC rankings and live cricket data integration via provider abstraction layer. Created `backend/providers/` with abstract base classes and CricketData.org implementation. Added `backend/services/rankings.py` and `backend/services/live.py` with in-memory caching (1 hour for rankings, 30 seconds for live data). New API endpoints: `/api/rankings/icc` for official ICC rankings, `/api/live/` for live match list and detail. Entity mapping resolves external names to canonical player/team IDs. Provider gracefully degrades when API key not configured. 47 new Phase 6.1 tests. Full suite: 250+ passed, 0 failed. Database remains at 149 MB.
 
+### Phase 6.1A: Provider Production Validation & Hardening ✅
+
+Validated and hardened the Phase 6.1 provider layer. Fixed provider base URL (api.cricapi.com/v1), corrected API endpoints to use actual CricAPI routes (currentMatches, matchScorecard), documented that ICC rankings are NOT available via free tier. Added request coalescing to prevent duplicate provider calls on concurrent requests, stale fallback for provider failures, and safe entity mapping that returns None for ambiguous matches. Cache now returns copies to prevent mutation. 48 new Phase 6.1A tests. Full suite: 250+ passed, 0 failed. Database remains at 150 MB.
+
 ### Not yet implemented (Phase 6.2+)
 
 - Win probability model
@@ -1068,7 +1072,7 @@ Added ICC rankings and live cricket data integration via provider abstraction la
 - Frontend integration with live data
 - Advanced dashboard features
 
-See `docs/phase-5.1.md` through `docs/phase-6.1.md` for details.
+See `docs/phase-5.1.md` through `docs/phase-6.1a.md` for details.
 
 ---
 

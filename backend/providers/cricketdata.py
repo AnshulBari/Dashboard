@@ -44,22 +44,18 @@ class CricketDataProvider(RankingsProvider, LiveDataProvider):
 
     Provides both ranking data and live match data from CricketData.org.
     Requires an API key set in environment variable CRICKETDATA_API_KEY.
+    
+    Actual API base URL: https://api.cricapi.com/v1/
+    Documentation: https://cricketdata.org/how-to-use-cricket-data-api.aspx
     """
 
-    BASE_URL = "https://api.cricdata.org"
+    BASE_URL = "https://api.cricapi.com/v1"
 
     # Mapping from our format names to API format names
     FORMAT_MAP = {
         "Test": "Test",
         "ODI": "ODI",
         "T20I": "T20",
-    }
-
-    # Mapping from our category names to API category names
-    CATEGORY_MAP = {
-        "batting": "batting",
-        "bowling": "bowling",
-        "allrounders": "allrounders",
     }
 
     def __init__(self, api_key: Optional[str] = None):
@@ -77,7 +73,6 @@ class CricketDataProvider(RankingsProvider, LiveDataProvider):
     def _get_headers(self) -> dict:
         """Get HTTP headers for API requests."""
         return {
-            "apikey": self.api_key,
             "Content-Type": "application/json",
         }
 
@@ -93,7 +88,7 @@ class CricketDataProvider(RankingsProvider, LiveDataProvider):
         Make an API request with error handling.
 
         Args:
-            endpoint: API endpoint path
+            endpoint: API endpoint path (e.g., 'cricket', 'matches', 'matchScorecard')
             params: Query parameters
 
         Returns:
@@ -105,29 +100,44 @@ class CricketDataProvider(RankingsProvider, LiveDataProvider):
 
         self._throttle()
 
-        url = f"{self.BASE_URL}{endpoint}"
+        # CricAPI passes apikey as query parameter
+        request_params = {"apikey": self.api_key}
+        if params:
+            request_params.update(params)
+
+        url = f"{self.BASE_URL}/{endpoint}"
         try:
-            with httpx.Client(timeout=30.0) as client:
+            with httpx.Client(timeout=15.0) as client:
                 response = client.get(
                     url,
                     headers=self._get_headers(),
-                    params=params or {},
+                    params=request_params,
                 )
                 response.raise_for_status()
-                return response.json()
+                data = response.json()
+                
+                # Check for API-level errors
+                if "error" in data:
+                    logger.warning(f"CricketData.org API error: {data['error']}")
+                    return None
+                
+                return data
         except httpx.TimeoutException:
             logger.error(f"CricketData.org API timeout: {endpoint}")
             return None
         except httpx.HTTPStatusError as e:
-            logger.error(f"CricketData.org API error {e.response.status_code}: {endpoint}")
+            logger.error(f"CricketData.org API HTTP error {e.response.status_code}: {endpoint}")
             return None
         except Exception as e:
-            logger.error(f"CricketData.org API request failed: {e}")
+            logger.error(f"CricketData.org API request failed: {type(e).__name__}: {endpoint}")
             return None
 
     # ============================================================
     # RankingsProvider Implementation
     # ============================================================
+    # Note: CricketData.org does not provide a dedicated rankings endpoint.
+    # Rankings are derived from player statistics, not available via free tier.
+    # We return empty list and document this limitation.
 
     def get_player_rankings(
         self,
@@ -136,58 +146,21 @@ class CricketDataProvider(RankingsProvider, LiveDataProvider):
     ) -> list[RankingEntry]:
         """
         Get player rankings from CricketData.org.
+        
+        NOTE: CricketData.org free tier does not provide ICC rankings.
+        This method returns empty list. For ICC rankings, a different
+        provider or manual data source would be needed.
 
         Args:
             format: Cricket format (Test, ODI, T20I)
             category: Ranking category (batting, bowling, allrounders)
 
         Returns:
-            List of RankingEntry objects
+            List of RankingEntry objects (currently empty)
         """
-        api_format = self.FORMAT_MAP.get(format)
-        api_category = self.CATEGORY_MAP.get(category)
-
-        if not api_format or not api_category:
-            logger.warning(f"Invalid format/category: {format}/{category}")
-            return []
-
-        # CricketData.org rankings endpoint
-        # Note: The exact endpoint structure may vary; this is based on
-        # common cricket API patterns
-        endpoint = "/v1/rankings/batting" if category == "batting" else \
-                   "/v1/rankings/bowling" if category == "bowling" else \
-                   "/v1/rankings/allrounders"
-
-        params = {"format": api_format}
-        data = self._make_request(endpoint, params)
-
-        if not data:
-            return []
-
-        rankings = []
-        fetched_at = datetime.utcnow()
-
-        # Parse response - adapt to actual API response structure
-        # The exact structure depends on CricketData.org's API format
-        players = data.get("rankings", data.get("data", []))
-        if isinstance(players, list):
-            for i, player in enumerate(players[:100], 1):
-                entry = RankingEntry(
-                    rank=player.get("rank", i),
-                    name=player.get("name", player.get("player", "")),
-                    country=player.get("country", player.get("team", "")),
-                    rating=player.get("rating", player.get("points")),
-                    change=player.get("change", player.get("movement")),
-                    source_id=str(player.get("id", "")),
-                    format=format,
-                    category=category,
-                    fetched_at=fetched_at,
-                    source="cricketdata.org",
-                )
-                rankings.append(entry)
-
-        logger.info(f"Fetched {len(rankings)} {format} {category} rankings")
-        return rankings
+        # CricketData.org does not expose ICC rankings via free tier API
+        logger.info(f"ICC rankings not available via CricketData.org free tier: {format}/{category}")
+        return []
 
     def get_team_rankings(
         self,
@@ -195,46 +168,19 @@ class CricketDataProvider(RankingsProvider, LiveDataProvider):
     ) -> list[TeamRankingEntry]:
         """
         Get team rankings from CricketData.org.
+        
+        NOTE: CricketData.org free tier does not provide team rankings.
+        This method returns empty list.
 
         Args:
             format: Cricket format (Test, ODI, T20I)
 
         Returns:
-            List of TeamRankingEntry objects
+            List of TeamRankingEntry objects (currently empty)
         """
-        api_format = self.FORMAT_MAP.get(format)
-        if not api_format:
-            logger.warning(f"Invalid format: {format}")
-            return []
-
-        endpoint = "/v1/rankings/teams"
-        params = {"format": api_format}
-        data = self._make_request(endpoint, params)
-
-        if not data:
-            return []
-
-        rankings = []
-        fetched_at = datetime.utcnow()
-
-        teams = data.get("rankings", data.get("data", []))
-        if isinstance(teams, list):
-            for i, team in enumerate(teams[:20], 1):
-                entry = TeamRankingEntry(
-                    rank=team.get("rank", i),
-                    team_name=team.get("name", team.get("team", "")),
-                    rating=team.get("rating", team.get("points")),
-                    points=team.get("points"),
-                    change=team.get("change", team.get("movement")),
-                    source_id=str(team.get("id", "")),
-                    format=format,
-                    fetched_at=fetched_at,
-                    source="cricketdata.org",
-                )
-                rankings.append(entry)
-
-        logger.info(f"Fetched {len(rankings)} {format} team rankings")
-        return rankings
+        # CricketData.org does not expose team rankings via free tier API
+        logger.info(f"Team rankings not available via CricketData.org free tier: {format}")
+        return []
 
     # ============================================================
     # LiveDataProvider Implementation
@@ -243,12 +189,14 @@ class CricketDataProvider(RankingsProvider, LiveDataProvider):
     def get_live_matches(self) -> list[LiveMatch]:
         """
         Get current live/upcoming matches from CricketData.org.
-
+        
+        Uses the 'currentMatches' endpoint (actual CricAPI endpoint).
+        
         Returns:
             List of LiveMatch objects
         """
-        endpoint = "/v1/matches/current"
-        data = self._make_request(endpoint)
+        # Actual CricAPI endpoint: /v1/currentMatches
+        data = self._make_request("currentMatches")
 
         if not data:
             return []
@@ -256,40 +204,53 @@ class CricketDataProvider(RankingsProvider, LiveDataProvider):
         matches = []
         fetched_at = datetime.utcnow()
 
-        match_list = data.get("matches", data.get("data", []))
-        if isinstance(match_list, list):
-            for match in match_list:
-                status_str = match.get("status", match.get("matchStatus", "")).lower()
-                if "live" in status_str or "in progress" in status_str:
-                    status = MatchStatus.LIVE.value
-                elif "complete" in status_str or "result" in status_str:
-                    status = MatchStatus.COMPLETED.value
-                elif "upcoming" in status_str or "schedule" in status_str:
-                    status = MatchStatus.UPCOMING.value
-                else:
-                    status = MatchStatus.UNKNOWN.value
+        # CricAPI response structure: {"data": [{...}, ...]}
+        match_list = data.get("data", data.get("matches", []))
+        if not isinstance(match_list, list):
+            logger.warning(f"Unexpected response format: {type(match_list)}")
+            return []
 
-                teams = match.get("teams", [])
-                team_a = teams[0] if len(teams) > 0 else match.get("team1", "")
-                team_b = teams[1] if len(teams) > 1 else match.get("team2", "")
+        for match in match_list:
+            try:
+                # Normalize status
+                status_str = str(match.get("matchStarted", False)).lower()
+                match_end = str(match.get("matchEnded", False)).lower()
+                
+                if match_end == "true":
+                    status = MatchStatus.COMPLETED.value
+                elif status_str == "true":
+                    status = MatchStatus.LIVE.value
+                else:
+                    status = MatchStatus.UPCOMING.value
+
+                # Extract team names
+                team_a = match.get("team-1", "")
+                team_b = match.get("team-2", "")
+                
+                # Skip if no team names
+                if not team_a and not team_b:
+                    continue
 
                 live_match = LiveMatch(
-                    match_id=str(match.get("id", match.get("matchId", ""))),
-                    external_id=str(match.get("id", "")),
-                    team_a=team_a if isinstance(team_a, str) else team_a.get("name", ""),
-                    team_b=team_b if isinstance(team_b, str) else team_b.get("name", ""),
-                    format=match.get("format", match.get("matchFormat", "")),
-                    competition=match.get("series", match.get("tournament", "")),
+                    match_id=str(match.get("unique_id", match.get("id", ""))),
+                    external_id=str(match.get("unique_id", "")),
+                    team_a=str(team_a) if team_a else None,
+                    team_b=str(team_b) if team_b else None,
+                    format=match.get("type", ""),
+                    competition=match.get("series", match.get("series_id", "")),
                     venue=match.get("venue", ""),
                     status=status,
-                    start_time=match.get("startDate", match.get("date", "")),
-                    score_team_a=match.get("team1Score", ""),
-                    score_team_b=match.get("team2Score", ""),
+                    start_time=match.get("dateTimeGMT", match.get("date", "")),
+                    score_team_a=match.get("score", {}).get("r", None) if isinstance(match.get("score"), dict) else None,
+                    score_team_b=match.get("score-2", {}).get("r", None) if isinstance(match.get("score-2"), dict) else None,
                     result=match.get("result", ""),
                     fetched_at=fetched_at,
                     source="cricketdata.org",
                 )
                 matches.append(live_match)
+            except Exception as e:
+                logger.warning(f"Failed to parse match: {e}")
+                continue
 
         logger.info(f"Fetched {len(matches)} matches from CricketData.org")
         return matches
@@ -300,59 +261,64 @@ class CricketDataProvider(RankingsProvider, LiveDataProvider):
     ) -> Optional[LiveMatchDetail]:
         """
         Get detailed live match state from CricketData.org.
+        
+        Uses the 'matchScorecard' endpoint (actual CricAPI endpoint).
 
         Args:
-            match_id: Match identifier
+            match_id: Match unique_id from CricAPI
 
         Returns:
             LiveMatchDetail or None if not found
         """
-        endpoint = f"/v1/matches/{match_id}/scorecard"
-        data = self._make_request(endpoint)
+        # Actual CricAPI endpoint: /v1/matchScorecard?unique_id=<id>
+        data = self._make_request("matchScorecard", {"unique_id": match_id})
 
         if not data:
             return None
 
-        match = data.get("match", data)
+        # CricAPI response: the match data is at the top level
+        match = data.get("data", data)
         fetched_at = datetime.utcnow()
 
-        teams = match.get("teams", [])
-        team_a = teams[0] if len(teams) > 0 else match.get("team1", "")
-        team_b = teams[1] if len(teams) > 1 else match.get("team2", "")
+        # Extract team names
+        team_a = match.get("team-1", "")
+        team_b = match.get("team-2", "")
 
-        # Extract current innings info
-        innings = match.get("innings", [])
-        current_innings = innings[-1] if innings else {}
-
-        status_str = match.get("status", match.get("matchStatus", "")).lower()
-        if "live" in status_str or "in progress" in status_str:
-            status = MatchStatus.LIVE.value
-        elif "complete" in status_str:
+        # Determine status
+        match_started = match.get("matchStarted", False)
+        match_ended = match.get("matchEnded", False)
+        
+        if match_ended:
             status = MatchStatus.COMPLETED.value
+        elif match_started:
+            status = MatchStatus.LIVE.value
         else:
             status = MatchStatus.UPCOMING.value
 
+        # Extract innings info if available
+        score_data = match.get("score", {})
+        
         detail = LiveMatchDetail(
             match_id=match_id,
-            external_id=str(match.get("id", "")),
-            team_a=team_a if isinstance(team_a, str) else team_a.get("name", ""),
-            team_b=team_b if isinstance(team_b, str) else team_b.get("name", ""),
-            format=match.get("format", ""),
+            external_id=str(match.get("unique_id", "")),
+            team_a=str(team_a) if team_a else None,
+            team_b=str(team_b) if team_b else None,
+            format=match.get("type", ""),
             competition=match.get("series", ""),
             venue=match.get("venue", ""),
             status=status,
             result=match.get("result", ""),
-            batting_team=current_innings.get("battingTeam", ""),
-            bowling_team=current_innings.get("bowlingTeam", ""),
-            current_score=current_innings.get("score", ""),
-            current_wickets=current_innings.get("wickets"),
-            current_overs=current_innings.get("overs"),
-            run_rate=current_innings.get("runRate"),
-            target=match.get("target"),
-            required_run_rate=current_innings.get("requiredRunRate"),
-            toss_winner=match.get("tossWinner", ""),
-            toss_decision=match.get("tossDecision", ""),
-            start_time=match.get("startDate", ""),
+            batting_team=None,  # CricAPI doesn't provide this directly
+            bowling_team=None,
+            current_score=score_data.get("r", None) if isinstance(score_data, dict) else None,
+            current_wickets=score_data.get("w", None) if isinstance(score_data, dict) else None,
+            current_overs=score_data.get("o", None) if isinstance(score_data, dict) else None,
+            run_rate=score_data.get("rr", None) if isinstance(score_data, dict) else None,
+            target=match.get("target", {}).get("runs") if isinstance(match.get("target"), dict) else None,
+            required_run_rate=None,  # Not directly available
+            toss_winner=match.get("toss_winner_team", ""),
+            toss_decision=match.get("toss_winner_elected", ""),
+            start_time=match.get("dateTimeGMT", ""),
             last_updated=fetched_at,
             fetched_at=fetched_at,
             source="cricketdata.org",
