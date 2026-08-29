@@ -14,12 +14,13 @@ Design principles:
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import os
 import logging
 
-from backend.routes import players, teams, venues, matches, matchups, rankings, news, live, competitions, analytics
+from backend.routes import players, teams, venues, matches, matchups, rankings, news, live, competitions, analytics, dashboard
 from backend.utils.database import init_db, close_db, engine
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# GZip compression — reduces API egress by ~70-80% for JSON responses
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
 # Include routers
 app.include_router(players.router, prefix="/api/players", tags=["Players"])
 app.include_router(teams.router, prefix="/api/teams", tags=["Teams"])
@@ -69,6 +73,7 @@ app.include_router(news.router, prefix="/api/news", tags=["News"])
 app.include_router(live.router, prefix="/api/live", tags=["Live"])
 app.include_router(competitions.router, prefix="/api/competitions", tags=["Competitions"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
+app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 
 
 # Global exception handler for unhandled errors
