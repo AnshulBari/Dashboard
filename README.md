@@ -1057,14 +1057,18 @@ Fixed connection leaks in analytics routes, added format/UUID input validation o
 
 Comprehensive 15-objective audit proving the serving database is production-ready. Key findings: (1) zero production deliveries dependencies, (2) fixed result_type inconsistency ("no result" → "no_result" for 179 matches), (3) fixed 1,062 Test innings missing extras from total_runs, (4) zero duplicate entities, (5) zero orphan records, (6) scorecard reconciliation passes across all 4 formats, (7) database at 149 MB, (8) all queries under 2s. 62 new Phase 6.0 tests. Full suite: 203+ passed, 0 failed. **GO decision: ready for frontend integration.**
 
-### Not yet implemented (Phase 6.1+)
+### Phase 6.1: External Cricket Intelligence Integration ✅
+
+Added ICC rankings and live cricket data integration via provider abstraction layer. Created `backend/providers/` with abstract base classes and CricketData.org implementation. Added `backend/services/rankings.py` and `backend/services/live.py` with in-memory caching (1 hour for rankings, 30 seconds for live data). New API endpoints: `/api/rankings/icc` for official ICC rankings, `/api/live/` for live match list and detail. Entity mapping resolves external names to canonical player/team IDs. Provider gracefully degrades when API key not configured. 47 new Phase 6.1 tests. Full suite: 250+ passed, 0 failed. Database remains at 149 MB.
+
+### Not yet implemented (Phase 6.2+)
 
 - Win probability model
 - Player impact metric
 - Frontend integration with live data
 - Advanced dashboard features
 
-See `docs/phase-5.1.md` through `docs/phase-6.0.md` for details.
+See `docs/phase-5.1.md` through `docs/phase-6.1.md` for details.
 
 ---
 

@@ -2,18 +2,32 @@
 Rankings API Routes
 ===================
 
-Endpoints for platform-computed player and team rankings.
-These are computed from the platform's own analytics.
+Endpoints for player and team rankings.
+
+Supports two ranking sources:
+1. Platform rankings - computed from historical analytics
+2. ICC rankings - from external provider (CricketData.org)
 """
 
-from fastapi import APIRouter, Query, Depends
+from fastapi import APIRouter, Query, Depends, HTTPException
 from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from backend.utils.database import get_db
+from backend.utils.database import get_db, engine
+from backend.utils.validation import validate_format, VALID_FORMATS
+from backend.services.rankings import RankingsService
+from backend.providers.cricketdata import CricketDataProvider
 
 router = APIRouter()
+
+# Initialize rankings service with provider
+_rankings_provider = CricketDataProvider()
+_rankings_service = RankingsService(
+    provider=_rankings_provider,
+    db_engine=engine,
+    cache_ttl=3600,  # 1 hour cache for rankings
+)
 
 
 def _row_to_dict(row) -> dict:
@@ -22,20 +36,22 @@ def _row_to_dict(row) -> dict:
     return dict(row._mapping)
 
 
-@router.get("/")
-async def get_rankings(
+# ============================================================
+# Platform Rankings (existing)
+# ============================================================
+
+
+@router.get("/platform")
+async def get_platform_rankings(
     format: str = Query("T20"),
     category: str = Query("batting", description="batting, bowling, allrounder"),
     limit: int = Query(25, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
     """
-    Get platform rankings for a given format and category.
+    Get platform-computed rankings from historical analytics.
 
-    These rankings are derived from the platform's precomputed analytics:
-    - Batting: based on batting_average + strike_rate + form_score
-    - Bowling: based on economy + wickets + bowling_average
-    - Allrounder: combined batting + bowling metrics
+    These are derived from the platform's own statistical analysis.
     """
     target_format = format or "T20"
 
@@ -127,8 +143,87 @@ async def get_rankings(
         rankings.append(d)
 
     return {
+        "source": "platform",
         "format": target_format,
         "category": category,
         "rankings": rankings,
         "total": len(rankings),
     }
+
+
+# ============================================================
+# ICC Rankings (external provider)
+# ============================================================
+
+
+@router.get("/icc")
+async def get_icc_rankings(
+    format: str = Query("Test", description="Test, ODI, T20I"),
+    category: str = Query("batting", description="batting, bowling, allrounders, teams"),
+    refresh: bool = Query(False, description="Force refresh from provider"),
+):
+    """
+    Get official ICC rankings from external provider.
+
+    Rankings are sourced from CricketData.org and mapped to
+    canonical player/team IDs where possible.
+
+    Note: ICC rankings are separate from platform-computed rankings.
+    """
+    fmt = validate_format(format)
+
+    if category == "teams":
+        result = _rankings_service.get_team_rankings(
+            format=fmt,
+            force_refresh=refresh,
+        )
+    else:
+        if category not in ("batting", "bowling", "allrounders"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid category '{category}'. Must be one of: batting, bowling, allrounders, teams",
+            )
+        result = _rankings_service.get_player_rankings(
+            format=fmt,
+            category=category,
+            force_refresh=refresh,
+        )
+
+    # Add provider availability info
+    result["provider_available"] = _rankings_service.is_available()
+
+    return result
+
+
+# ============================================================
+# Backward Compatibility
+# ============================================================
+
+
+@router.get("/")
+async def get_rankings(
+    format: str = Query("T20"),
+    category: str = Query("batting", description="batting, bowling, allrounder"),
+    limit: int = Query(25, ge=1, le=100),
+    source: str = Query("platform", description="platform or icc"),
+    db: Session = Depends(get_db),
+):
+    """
+    Get rankings - supports both platform and ICC sources.
+
+    Use 'source=platform' for platform-computed rankings (default).
+    Use 'source=icc' for official ICC rankings.
+    """
+    if source == "icc":
+        # Redirect to ICC endpoint
+        return await get_icc_rankings(
+            format=format,
+            category=category,
+        )
+    else:
+        return await get_platform_rankings(
+            format=format,
+            category=category,
+            limit=limit,
+            db=db,
+        )
