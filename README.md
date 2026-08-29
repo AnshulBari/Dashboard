@@ -1037,6 +1037,10 @@ Validated all 17 API endpoints operate deliveries-free. Verified scorecard corre
 
 Identified and fixed doubled scorecard values for 407 ODI/T20I matches (root cause: duplicated delivery processing during scorecard generation). Recomputed from authoritative Cricsheet JSON. Bowling reconciliation now 100% accurate across all formats. 20 new validation tests. Full suite: 276 passed, 0 failed.
 
+### Phase 5.6D: Scorecard Pipeline Hardening & Data-Integrity Regression ✅
+
+Created `data_pipeline/pipeline/scorecards.py` — deterministic JSON-based scorecard generator that uses `ON CONFLICT DO UPDATE` for idempotency. Does not depend on the deliveries table. 38 new validation tests covering idempotency, 2x inflation regression, format isolation, validation, and database integrity. Full suite: 314+ passed, 0 failed.
+
 ### Not yet implemented (Phase 5.7+)
 
 - Win probability model
@@ -1044,7 +1048,7 @@ Identified and fixed doubled scorecard values for 407 ODI/T20I matches (root cau
 - Advanced frontend filters (format/competition/season selectors)
 - Frontend integration with live data
 
-See `docs/phase-5.1.md` through `docs/phase-5.6c.md` for details.
+See `docs/phase-5.1.md` through `docs/phase-5.6d.md` for details.
 
 ---
 
