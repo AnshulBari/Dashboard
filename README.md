@@ -1041,14 +1041,18 @@ Identified and fixed doubled scorecard values for 407 ODI/T20I matches (root cau
 
 Created `data_pipeline/pipeline/scorecards.py` — deterministic JSON-based scorecard generator that uses `ON CONFLICT DO UPDATE` for idempotency. Does not depend on the deliveries table. 38 new validation tests covering idempotency, 2x inflation regression, format isolation, validation, and database integrity. Full suite: 314+ passed, 0 failed.
 
-### Not yet implemented (Phase 5.7+)
+### Phase 5.7: Analytical Dimensions & Data-Categorization Audit ✅
+
+Verified all analytical dimensions (Player, Team, Competition, Season, Venue, Opponent, Format, Time) are supported by the data model. Fixed period inconsistency ('all-time' → 'career' for 1,860 Test stats rows) and removed 699 duplicate affiliation rows. 32 new dimension tests. All endpoints verified. Database: 149 MB.
+
+### Not yet implemented (Phase 5.8+)
 
 - Win probability model
 - Player impact metric
 - Advanced frontend filters (format/competition/season selectors)
 - Frontend integration with live data
 
-See `docs/phase-5.1.md` through `docs/phase-5.6d.md` for details.
+See `docs/phase-5.1.md` through `docs/phase-5.7.md` for details.
 
 ---
 
