@@ -307,7 +307,10 @@ class TestAPI:
     def test_live(self):
         resp = self.client.get("/api/live")
         assert resp.status_code == 200
-        assert "live_matches" in resp.json()
+        data = resp.json()
+        # Live endpoint returns matches array and provider info
+        assert "matches" in data or "data" in data
+        assert "provider_available" in data
 
 
 # ============================================================

@@ -1,128 +1,171 @@
-import { useParams } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import { ArrowLeft, MapPin } from 'lucide-react'
-
-const mockVenue = {
-  name: 'Melbourne Cricket Ground',
-  city: 'Melbourne',
-  country: 'Australia',
-  capacity: 100024,
-  matches: 85,
-  avgFirstInnings: 168.5,
-  avgSecondInnings: 155.2,
-  highestTotal: 223,
-  lowestTotal: 78,
-  chasingWinPct: 55.0,
-  defendingWinPct: 45.0,
-  avgPowerplay: 42.5,
-  avgMiddle: 58.2,
-  avgDeath: 67.8,
-  paceWicketsPct: 58.0,
-  spinWicketsPct: 42.0,
-  boundaryFrequency: 15.8,
-  tossBatFirstWinPct: 48.5,
-  tossFieldFirstWinPct: 51.5,
-}
+import { useVenueAnalytics } from '@/hooks/useQueries'
+import { SkeletonCard, Skeleton } from '@/components/ui/Skeleton'
+import ErrorCard from '@/components/ui/ErrorCard'
+import EmptyState from '@/components/ui/EmptyState'
 
 export default function VenueDetail() {
-  const { id: _id } = useParams()
+  const { id } = useParams()
+  const { data: venue, isLoading, isError, refetch } = useVenueAnalytics(id || '')
+
+  if (isError) {
+    return (
+      <div>
+        <Link to="/venues" className="flex items-center text-sm text-gray-500 hover:text-gray-300 mb-6 transition-colors">
+          <ArrowLeft className="h-4 w-4 mr-1" />
+          Back to Venues
+        </Link>
+        <ErrorCard message="Failed to load venue data" onRetry={() => refetch()} />
+      </div>
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+      </div>
+    )
+  }
+
+  if (!venue) {
+    return (
+      <div>
+        <Link to="/venues" className="flex items-center text-sm text-gray-500 hover:text-gray-300 mb-6 transition-colors">
+          <ArrowLeft className="h-4 w-4 mr-1" />
+          Back to Venues
+        </Link>
+        <EmptyState title="Venue not found" message="This venue could not be found." />
+      </div>
+    )
+  }
 
   return (
-    <div>
-      <button
-        onClick={() => window.history.back()}
-        className="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-6 transition-colors"
-      >
+    <div className="space-y-6">
+      <Link to="/venues" className="flex items-center text-sm text-gray-500 hover:text-gray-300 transition-colors">
         <ArrowLeft className="h-4 w-4 mr-1" />
         Back to Venues
-      </button>
+      </Link>
 
       {/* Venue Header */}
-      <div className="card p-6 mb-6">
-        <div className="flex items-center gap-3 mb-2">
-          <MapPin className="h-6 w-6 text-brand-600" />
+      <div className="card p-5">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-full bg-brand-500/15 border border-brand-500/30 flex items-center justify-center">
+            <MapPin className="h-6 w-6 text-brand-400" />
+          </div>
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">{mockVenue.name}</h1>
-            <p className="text-sm text-gray-500">{mockVenue.city}, {mockVenue.country}</p>
+            <h1 className="text-2xl font-bold text-gray-100">{venue.name || 'Unknown Venue'}</h1>
+            <p className="text-sm text-gray-500">
+              {venue.city || 'Unknown'}{venue.country ? `, ${venue.country}` : ''}
+            </p>
           </div>
         </div>
-        <p className="text-sm text-gray-400">Capacity: {mockVenue.capacity.toLocaleString()}</p>
       </div>
 
       {/* Key Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="card p-4 text-center">
-          <p className="text-2xl font-bold text-gray-900">{mockVenue.matches}</p>
-          <p className="text-xs text-gray-500">Matches</p>
+          <p className="text-2xl font-bold text-gray-100">{venue.total_matches || 0}</p>
+          <p className="text-[10px] text-gray-500 mt-1">Matches</p>
         </div>
         <div className="card p-4 text-center">
-          <p className="text-2xl font-bold text-emerald-600">{mockVenue.avgFirstInnings}</p>
-          <p className="text-xs text-gray-500">Avg 1st Innings</p>
+          <p className="text-2xl font-bold text-cricket-green">
+            {venue.avg_first_innings_score?.toFixed(0) || '—'}
+          </p>
+          <p className="text-[10px] text-gray-500 mt-1">Avg 1st Innings</p>
         </div>
         <div className="card p-4 text-center">
-          <p className="text-2xl font-bold text-blue-600">{mockVenue.avgSecondInnings}</p>
-          <p className="text-xs text-gray-500">Avg 2nd Innings</p>
+          <p className="text-2xl font-bold text-blue-400">
+            {venue.avg_second_innings_score?.toFixed(0) || '—'}
+          </p>
+          <p className="text-[10px] text-gray-500 mt-1">Avg 2nd Innings</p>
         </div>
         <div className="card p-4 text-center">
-          <p className="text-2xl font-bold text-amber-600">{mockVenue.chasingWinPct}%</p>
-          <p className="text-xs text-gray-500">Chase Win %</p>
+          <p className="text-2xl font-bold text-amber-400">
+            {venue.chasing_win_pct?.toFixed(1) || '—'}%
+          </p>
+          <p className="text-[10px] text-gray-500 mt-1">Chase Win %</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Score Profile */}
-        <div className="card p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Score Profile</h2>
+        <div className="card p-5">
+          <h2 className="text-xs font-semibold text-gray-300 uppercase tracking-wider mb-4">Score Profile</h2>
           <div className="space-y-3">
-            {[
-              { label: 'Highest Total', value: mockVenue.highestTotal, color: 'text-emerald-600' },
-              { label: 'Lowest Total', value: mockVenue.lowestTotal, color: 'text-red-600' },
-              { label: 'Avg 1st Innings', value: mockVenue.avgFirstInnings, color: '' },
-              { label: 'Avg 2nd Innings', value: mockVenue.avgSecondInnings, color: '' },
-            ].map((stat) => (
-              <div key={stat.label} className="flex items-center justify-between p-2 rounded-lg bg-surface-50">
-                <span className="text-sm text-gray-600">{stat.label}</span>
-                <span className={`text-sm font-bold ${stat.color || 'text-gray-900'}`}>{stat.value}</span>
-              </div>
-            ))}
+            <div className="flex items-center justify-between p-2 rounded-lg bg-surface-100/50">
+              <span className="text-xs text-gray-400">Highest Total</span>
+              <span className="text-sm font-bold text-cricket-green">{venue.highest_total ?? '—'}</span>
+            </div>
+            <div className="flex items-center justify-between p-2 rounded-lg bg-surface-100/50">
+              <span className="text-xs text-gray-400">Lowest Total</span>
+              <span className="text-sm font-bold text-cricket-red">{venue.lowest_total ?? '—'}</span>
+            </div>
+            <div className="flex items-center justify-between p-2 rounded-lg bg-surface-100/50">
+              <span className="text-xs text-gray-400">Avg 1st Innings</span>
+              <span className="text-sm font-bold text-gray-200">
+                {venue.avg_first_innings_score?.toFixed(0) || '—'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between p-2 rounded-lg bg-surface-100/50">
+              <span className="text-xs text-gray-400">Avg 2nd Innings</span>
+              <span className="text-sm font-bold text-gray-200">
+                {venue.avg_second_innings_score?.toFixed(0) || '—'}
+              </span>
+            </div>
           </div>
         </div>
 
         {/* Pace vs Spin */}
-        <div className="card p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Pace vs Spin</h2>
+        <div className="card p-5">
+          <h2 className="text-xs font-semibold text-gray-300 uppercase tracking-wider mb-4">Pace vs Spin</h2>
           <div className="space-y-4">
             <div>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm text-gray-600">Pace Wickets</span>
-                <span className="text-sm font-bold text-gray-900">{mockVenue.paceWicketsPct}%</span>
+                <span className="text-xs text-gray-400">Pace Wickets</span>
+                <span className="text-sm font-bold text-gray-200">{venue.pace_wickets_pct?.toFixed(1) || '—'}%</span>
               </div>
-              <div className="h-3 bg-surface-100 rounded-full overflow-hidden">
-                <div className="h-full bg-red-500 rounded-full" style={{ width: `${mockVenue.paceWicketsPct}%` }} />
+              <div className="h-2 bg-surface-200/50 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-cricket-red/60 rounded-full" 
+                  style={{ width: `${venue.pace_wickets_pct || 0}%` }} 
+                />
               </div>
             </div>
             <div>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm text-gray-600">Spin Wickets</span>
-                <span className="text-sm font-bold text-gray-900">{mockVenue.spinWicketsPct}%</span>
+                <span className="text-xs text-gray-400">Spin Wickets</span>
+                <span className="text-sm font-bold text-gray-200">{venue.spin_wickets_pct?.toFixed(1) || '—'}%</span>
               </div>
-              <div className="h-3 bg-surface-100 rounded-full overflow-hidden">
-                <div className="h-full bg-amber-500 rounded-full" style={{ width: `${mockVenue.spinWicketsPct}%` }} />
+              <div className="h-2 bg-surface-200/50 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-amber-500/60 rounded-full" 
+                  style={{ width: `${venue.spin_wickets_pct || 0}%` }} 
+                />
               </div>
             </div>
           </div>
 
-          <h2 className="text-lg font-semibold text-gray-900 mt-6 mb-4">Phase Scoring</h2>
-          <div className="space-y-3">
-            {[
-              { phase: 'Powerplay', runs: mockVenue.avgPowerplay },
-              { phase: 'Middle Overs', runs: mockVenue.avgMiddle },
-              { phase: 'Death Overs', runs: mockVenue.avgDeath },
-            ].map((phase) => (
-              <div key={phase.phase} className="flex items-center justify-between p-2 rounded-lg bg-surface-50">
-                <span className="text-sm text-gray-600">{phase.phase}</span>
-                <span className="text-sm font-bold text-gray-900">{phase.runs}</span>
+          <div className="mt-6">
+            <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wider mb-3">Win Tendency</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-3 rounded-lg bg-cricket-green/5 text-center border border-cricket-green/10">
+                <p className="text-xl font-bold text-cricket-green">
+                  {venue.chasing_win_pct?.toFixed(1) || '—'}%
+                </p>
+                <p className="text-[10px] text-gray-500 mt-1">Chasing</p>
               </div>
-            ))}
+              <div className="p-3 rounded-lg bg-blue-500/5 text-center border border-blue-500/10">
+                <p className="text-xl font-bold text-blue-400">
+                  {venue.defending_win_pct?.toFixed(1) || '—'}%
+                </p>
+                <p className="text-[10px] text-gray-500 mt-1">Defending</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -1,107 +1,104 @@
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { teamApi } from '../services/api'
+import { useOutletContext } from 'react-router-dom'
+import { Link } from 'react-router-dom'
+import { Shield } from 'lucide-react'
+import { useTeamList } from '@/hooks/useQueries'
+import { SkeletonTable } from '@/components/ui/Skeleton'
+import ErrorCard from '@/components/ui/ErrorCard'
+import EmptyState from '@/components/ui/EmptyState'
 
-interface TeamRow {
-  id: string
-  name: string
-  short_name: string
-  country: string | null
-  overall_strength_score: number | null
-  batting_strength_score: number | null
-  bowling_strength_score: number | null
-  win_rate: number | null
-  matches: number | null
-  wins: number | null
+interface PageContext {
+  format: string
 }
 
 export default function Teams() {
-  const [teams, setTeams] = useState<TeamRow[]>([])
-  const [loading, setLoading] = useState(true)
-  const navigate = useNavigate()
+  const { format } = useOutletContext<PageContext>()
+  const { data, isLoading, isError, refetch } = useTeamList({ 
+    format: format === 'All' ? 'T20' : format 
+  })
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await teamApi.list({ format: 'T20' }) as { teams: TeamRow[] }
-        setTeams(res.teams || [])
-      } catch (err) {
-        console.error('Failed to load teams:', err)
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
-  }, [])
+  const teams = data?.teams || []
 
   return (
     <div>
       <div className="page-header">
-        <h1 className="page-title">Team Intelligence</h1>
+        <h1 className="page-title">Teams</h1>
         <p className="page-subtitle">
-          Team strength ratings, performance analytics, and competitive insights
+          Team intelligence · {format === 'All' ? 'T20' : format}
         </p>
       </div>
 
-      {loading ? (
-        <div className="text-center py-12 text-gray-500">Loading teams...</div>
+      {isLoading ? (
+        <SkeletonTable rows={8} />
+      ) : isError ? (
+        <ErrorCard message="Failed to load teams" onRetry={() => refetch()} />
+      ) : teams.length === 0 ? (
+        <EmptyState 
+          icon={<Shield className="h-10 w-10 text-gray-600" />}
+          title="No teams found" 
+          message="No team data available for this selection." 
+        />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {teams.map((team, index) => (
-            <div
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {teams.map((team, idx) => (
+            <Link
               key={team.id}
-              onClick={() => navigate(`/teams/${team.id}`)}
-              className="card-hover p-5 cursor-pointer"
+              to={`/teams/${team.id}`}
+              className="card-glow p-4"
             >
-              <div className="flex items-start justify-between">
+              <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-3">
-                  <span className="text-lg font-bold text-gray-300 w-6">#{index + 1}</span>
+                  <span className="text-xs font-bold text-gray-600 w-5">{idx + 1}</span>
                   <div>
-                    <h3 className="text-base font-semibold text-gray-900">{team.name}</h3>
-                    <p className="text-sm text-gray-500">{team.short_name}</p>
+                    <p className="text-sm font-semibold text-gray-100">{team.name}</p>
+                    <p className="text-[10px] text-gray-500">
+                      {team.country || '—'} · {team.matches || 0} matches
+                    </p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-2xl font-bold text-brand-600">{team.overall_strength_score?.toFixed(1) || '-'}</p>
-                  <p className="text-xs text-gray-500">strength</p>
+                {team.overall_strength_score != null && (
+                  <div className="text-right">
+                    <p className="text-lg font-bold text-brand-400">
+                      {team.overall_strength_score.toFixed(1)}
+                    </p>
+                    <p className="text-[10px] text-gray-500">strength</p>
+                  </div>
+                )}
+              </div>
+              
+              <div className="flex items-center gap-4 text-[10px]">
+                <div>
+                  <span className="text-gray-500">W/L</span>
+                  <span className="ml-1 font-semibold text-gray-300">
+                    {team.wins || 0}/{team.losses || 0}
+                  </span>
                 </div>
+                {team.win_rate != null && (
+                  <div>
+                    <span className="text-gray-500">Win%</span>
+                    <span className="ml-1 font-semibold text-gray-300">
+                      {team.win_rate.toFixed(1)}%
+                    </span>
+                  </div>
+                )}
+                {team.avg_first_innings_score != null && (
+                  <div>
+                    <span className="text-gray-500">Avg</span>
+                    <span className="ml-1 font-semibold text-gray-300">
+                      {team.avg_first_innings_score.toFixed(0)}
+                    </span>
+                  </div>
+                )}
               </div>
 
-              <div className="mt-4 grid grid-cols-4 gap-3">
-                <div>
-                  <p className="text-xs text-gray-500">Win Rate</p>
-                  <p className="text-sm font-bold text-gray-900">{team.win_rate?.toFixed(1) || '-'}%</p>
+              {team.overall_strength_score != null && (
+                <div className="mt-3 h-1 bg-surface-200/50 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-brand-500/60 rounded-full"
+                    style={{ width: `${Math.min(team.overall_strength_score, 100)}%` }}
+                  />
                 </div>
-                <div>
-                  <p className="text-xs text-gray-500">Matches</p>
-                  <p className="text-sm font-bold text-gray-900">{team.matches || '-'}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Batting</p>
-                  <p className="text-sm font-bold text-emerald-600">{team.batting_strength_score?.toFixed(1) || '-'}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Bowling</p>
-                  <p className="text-sm font-bold text-brand-600">{team.bowling_strength_score?.toFixed(1) || '-'}</p>
-                </div>
-              </div>
-
-              {/* Strength bars */}
-              <div className="mt-3 space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400 w-14">Batting</span>
-                  <div className="flex-1 h-1.5 bg-surface-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${team.batting_strength_score || 0}%` }} />
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400 w-14">Bowling</span>
-                  <div className="flex-1 h-1.5 bg-surface-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-brand-500 rounded-full" style={{ width: `${team.bowling_strength_score || 0}%` }} />
-                  </div>
-                </div>
-              </div>
-            </div>
+              )}
+            </Link>
           ))}
         </div>
       )}

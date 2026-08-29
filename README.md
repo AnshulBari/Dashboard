@@ -1065,14 +1065,24 @@ Added ICC rankings and live cricket data integration via provider abstraction la
 
 Validated and hardened the Phase 6.1 provider layer. Fixed provider base URL (api.cricapi.com/v1), corrected API endpoints to use actual CricAPI routes (currentMatches, matchScorecard), documented that ICC rankings are NOT available via free tier. Added request coalescing to prevent duplicate provider calls on concurrent requests, stale fallback for provider failures, and safe entity mapping that returns None for ambiguous matches. Cache now returns copies to prevent mutation. 48 new Phase 6.1A tests. Full suite: 250+ passed, 0 failed. Database remains at 150 MB.
 
-### Not yet implemented (Phase 6.2+)
+### Phase 6.2A: Frontend Architecture & Product Design Audit ✅
 
-- Win probability model
-- Player impact metric
-- Frontend integration with live data
-- Advanced dashboard features
+Comprehensive audit of the existing frontend codebase (15 pages, React 18 + TypeScript + Tailwind CSS). Key findings: (1) React Query installed but completely unused — all pages use raw useState/useEffect, (2) Recharts installed but never imported — no charts exist, (3) 3 pages use mock data (TeamDetail, VenueDetail, News), (4) Live page is a static placeholder with no API integration, (5) entire frontend defaults to T20/IPL only — no multi-format support, (6) no MatchDetail page, no Competitions page, no Search, (7) frontend uses only 19% of available backend API surface (8 of 42 endpoints). Produced a 33-section implementation-ready design specification covering: information architecture, navigation, wireframes for all major pages, design system (dark premium theme), component inventory, React Query integration strategy, responsive design, search architecture, data source transparency, URL deep linking, loading/error states, and a 4-week Phase 6.2B implementation roadmap. **No code was changed — this phase is audit and specification only.** See `docs/phase-6.2a.md`.
 
-See `docs/phase-5.1.md` through `docs/phase-6.1a.md` for details.
+### Phase 6.2B: Frontend Foundation + Dashboard Implementation ✅
+
+Complete frontend rebuild with dark premium cricket intelligence design system. Created centralized typed API client (`lib/api.ts`) and 30+ React Query hooks (`hooks/useQueries.ts`). Built responsive application shell with mobile hamburger nav and global format filter. Rebuilt main Dashboard with real backend data: live matches (30-second refresh), top performers by form score, recent results, and venue insights. Updated all pages (Players, Teams, Matches, Venues, Matchups, Rankings, Live) to use React Query + dark theme. Replaced mock data in TeamDetail and VenueDetail with real API calls. Removed News page (was 100% hardcoded). Created shared UI components: Skeleton, ErrorCard, EmptyState, FormatBadge. TypeScript clean, Vite build passes (74KB gzipped). 230 backend tests pass. Database: 150 MB. See `docs/phase-6.2b.md`.
+
+### Not yet implemented (Phase 6.2C+)
+
+- Player Detail format switcher + career progression charts
+- Match Detail page with scorecards
+- Competitions page
+- Global search functionality
+- Dashboard charts (Recharts)
+- Head-to-head team comparison
+
+See `docs/phase-5.1.md` through `docs/phase-6.2b.md` for details.
 
 ---
 

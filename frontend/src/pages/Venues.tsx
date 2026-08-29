@@ -1,97 +1,106 @@
-import { useState, useEffect } from 'react'
+import { useOutletContext } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { MapPin } from 'lucide-react'
-import { venueApi } from '../services/api'
+import { useVenueList } from '@/hooks/useQueries'
+import { SkeletonCard } from '@/components/ui/Skeleton'
+import ErrorCard from '@/components/ui/ErrorCard'
+import EmptyState from '@/components/ui/EmptyState'
 
-interface VenueRow {
-  id: string
-  name: string
-  city: string | null
-  country: string | null
-  total_matches: number | null
-  avg_first_innings_score: number | null
-  chasing_win_pct: number | null
-  pace_wickets_pct: number | null
+interface PageContext {
+  format: string
 }
 
 export default function Venues() {
-  const [venues, setVenues] = useState<VenueRow[]>([])
-  const [loading, setLoading] = useState(true)
+  const { format } = useOutletContext<PageContext>()
+  const { data, isLoading, isError, refetch } = useVenueList({ 
+    format: format === 'All' ? 'T20' : format 
+  })
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await venueApi.list({ format: 'T20' }) as { venues: VenueRow[] }
-        setVenues(res.venues || [])
-      } catch (err) {
-        console.error('Failed to load venues:', err)
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
-  }, [])
+  const venues = data?.venues || []
 
   return (
     <div>
       <div className="page-header">
-        <h1 className="page-title">Venue Intelligence</h1>
+        <h1 className="page-title">Venues</h1>
         <p className="page-subtitle">
-          How different grounds play — batting paradise, pace-friendly, or spin heaven
+          Venue intelligence · {format === 'All' ? 'T20' : format}
         </p>
       </div>
 
-      {loading ? (
-        <div className="text-center py-12 text-gray-500">Loading venues...</div>
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+      ) : isError ? (
+        <ErrorCard message="Failed to load venues" onRetry={() => refetch()} />
+      ) : venues.length === 0 ? (
+        <EmptyState 
+          icon={<MapPin className="h-10 w-10 text-gray-600" />}
+          title="No venues found" 
+          message="No venue data available for this selection." 
+        />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {venues.map((venue) => (
-            <div key={venue.id} className="card-hover p-5 cursor-pointer">
-              <div className="flex items-start gap-3 mb-4">
-                <MapPin className="h-5 w-5 text-brand-600 mt-0.5" />
-                <div>
-                  <h3 className="text-base font-semibold text-gray-900">{venue.name}</h3>
-                  <p className="text-sm text-gray-500">{venue.city || 'Unknown'}{venue.country ? `, ${venue.country}` : ''}</p>
+            <Link
+              key={venue.id}
+              to={`/venues/${venue.id}`}
+              className="card-glow p-4"
+            >
+              <div className="flex items-start gap-3 mb-3">
+                <MapPin className="h-4 w-4 text-brand-400 mt-0.5 flex-shrink-0" />
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold text-gray-100 truncate">{venue.name}</h3>
+                  <p className="text-[10px] text-gray-500">
+                    {venue.city || 'Unknown'}{venue.country ? `, ${venue.country}` : ''}
+                  </p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="grid grid-cols-2 gap-2 mb-3">
                 <div>
-                  <p className="text-xs text-gray-500">Matches</p>
-                  <p className="text-sm font-bold text-gray-900">{venue.total_matches || 0}</p>
+                  <p className="text-[10px] text-gray-500">Matches</p>
+                  <p className="text-sm font-bold text-gray-100">{venue.total_matches || 0}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Avg 1st Innings</p>
-                  <p className="text-sm font-bold text-gray-900">{venue.avg_first_innings_score?.toFixed(0) || '-'}</p>
+                  <p className="text-[10px] text-gray-500">Avg 1st Inn</p>
+                  <p className="text-sm font-bold text-gray-100">
+                    {venue.avg_first_innings_score?.toFixed(0) || '—'}
+                  </p>
                 </div>
               </div>
 
               <div className="space-y-2">
                 <div>
-                  <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center justify-between text-[10px]">
                     <span className="text-gray-500">Chase Win %</span>
-                    <span className="font-medium text-gray-700">{venue.chasing_win_pct?.toFixed(1) || '-'}%</span>
+                    <span className="font-medium text-gray-300">
+                      {venue.chasing_win_pct?.toFixed(1) || '—'}%
+                    </span>
                   </div>
-                  <div className="h-1.5 bg-surface-100 rounded-full overflow-hidden mt-1">
+                  <div className="h-1 bg-surface-200/50 rounded-full overflow-hidden mt-1">
                     <div
-                      className="h-full bg-emerald-500 rounded-full"
+                      className="h-full bg-emerald-500/60 rounded-full"
                       style={{ width: `${venue.chasing_win_pct || 0}%` }}
                     />
                   </div>
                 </div>
                 <div>
-                  <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center justify-between text-[10px]">
                     <span className="text-gray-500">Pace Wickets %</span>
-                    <span className="font-medium text-gray-700">{venue.pace_wickets_pct?.toFixed(1) || '-'}%</span>
+                    <span className="font-medium text-gray-300">
+                      {venue.pace_wickets_pct?.toFixed(1) || '—'}%
+                    </span>
                   </div>
-                  <div className="h-1.5 bg-surface-100 rounded-full overflow-hidden mt-1">
+                  <div className="h-1 bg-surface-200/50 rounded-full overflow-hidden mt-1">
                     <div
-                      className="h-full bg-brand-500 rounded-full"
+                      className="h-full bg-brand-500/60 rounded-full"
                       style={{ width: `${venue.pace_wickets_pct || 0}%` }}
                     />
                   </div>
                 </div>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       )}

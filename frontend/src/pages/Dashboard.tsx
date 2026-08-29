@@ -1,317 +1,468 @@
-import { useState, useEffect } from 'react'
-import { Users, Shield, MapPin, Trophy } from 'lucide-react'
-import { playerApi, teamApi, venueApi, matchApi } from '../services/api'
+import { useOutletContext } from 'react-router-dom'
+import { Link } from 'react-router-dom'
+import { 
+  Users, Shield, Trophy, MapPin, Radio, 
+  TrendingUp, ArrowRight, WifiOff
+} from 'lucide-react'
+import { usePlayerList, useTeamList, useMatchList, useVenueList, useLiveMatches } from '@/hooks/useQueries'
+import { SkeletonCard, SkeletonMatch, Skeleton } from '@/components/ui/Skeleton'
+import ErrorCard from '@/components/ui/ErrorCard'
+import EmptyState from '@/components/ui/EmptyState'
+import FormatBadge from '@/components/ui/FormatBadge'
 
-interface PlayerRow {
-  id: string
-  name: string
-  team_name: string
-  form_score: number | null
-  career_runs: number | null
-  strike_rate: number | null
-  career_wickets: number | null
-}
-
-interface TeamRow {
-  id: string
-  name: string
-  short_name: string
-  overall_strength_score: number | null
-  win_rate: number | null
-  matches: number | null
-  wins: number | null
-}
-
-interface VenueRow {
-  id: string
-  name: string
-  total_matches: number | null
-  avg_first_innings_score: number | null
-  chasing_win_pct: number | null
-}
-
-interface MatchRow {
-  id: string
-  team_a: string
-  team_b: string
-  match_date: string
+interface DashboardContext {
   format: string
-  result: string
-  venue: string | null
 }
 
-function StatCard({ label, value, change, icon: Icon, color }: {
+function FormScoreBadge({ score }: { score: number | null }) {
+  if (score == null) return <span className="text-gray-600">—</span>
+  const cls = score >= 70 ? 'form-score-high' : score >= 50 ? 'form-score-mid' : 'form-score-low'
+  return <span className={cls}>{score.toFixed(1)}</span>
+}
+
+function StatSummary({ label, value, icon: Icon, color }: {
   label: string
   value: string | number
-  change?: string
   icon: React.ElementType
   color: string
 }) {
   return (
-    <div className="card p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="stat-label">{label}</p>
-          <p className="stat-value mt-1">{value}</p>
-          {change && (
-            <p className="text-xs text-gray-500 mt-1">{change}</p>
-          )}
+    <div className="card p-4">
+      <div className="flex items-center gap-3">
+        <div className={`p-2 rounded-lg ${color}`}>
+          <Icon className="h-4 w-4 text-white" />
         </div>
-        <div className={`p-3 rounded-lg ${color}`}>
-          <Icon className="h-6 w-6 text-white" />
+        <div>
+          <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">{label}</p>
+          <p className="text-xl font-bold text-gray-100 mt-0.5">{value}</p>
         </div>
       </div>
     </div>
   )
 }
 
-function FormBadge({ score }: { score: number }) {
-  const color = score >= 80 ? 'bg-emerald-100 text-emerald-800'
-    : score >= 60 ? 'bg-blue-100 text-blue-800'
-    : score >= 40 ? 'bg-amber-100 text-amber-800'
-    : 'bg-red-100 text-red-800'
-  
-  return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${color}`}>
-      {score.toFixed(1)}
-    </span>
-  )
-}
-
 export default function Dashboard() {
-  const [players, setPlayers] = useState<PlayerRow[]>([])
-  const [teams, setTeams] = useState<TeamRow[]>([])
-  const [venues, setVenues] = useState<VenueRow[]>([])
-  const [matches, setMatches] = useState<MatchRow[]>([])
-  const [loading, setLoading] = useState(true)
+  const { format } = useOutletContext<DashboardContext>()
+  
+  // All queries run in parallel
+  const players = usePlayerList({ 
+    format: format === 'All' ? 'T20' : format, 
+    sort_by: 'form_score', 
+    limit: 10 
+  })
+  const teams = useTeamList({ 
+    format: format === 'All' ? 'T20' : format, 
+    limit: 8 
+  })
+  const matches = useMatchList({ 
+    format: format === 'All' ? undefined : format, 
+    limit: 8 
+  })
+  const venues = useVenueList({ 
+    format: format === 'All' ? 'T20' : format, 
+    limit: 6 
+  })
+  const live = useLiveMatches()
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const [playersRes, teamsRes, venuesRes, matchesRes] = await Promise.all([
-          playerApi.list({ format: 'T20', sortBy: 'form_score', limit: 10 }) as Promise<{ players: PlayerRow[] }>,
-          teamApi.list({ format: 'T20' }) as Promise<{ teams: TeamRow[] }>,
-          venueApi.list({ format: 'T20' }) as Promise<{ venues: VenueRow[] }>,
-          matchApi.list({ format: 'T20', limit: 10 }) as Promise<{ matches: MatchRow[] }>,
-        ])
-        setPlayers(playersRes.players || [])
-        setTeams(teamsRes.teams || [])
-        setVenues(venuesRes.venues || [])
-        setMatches(matchesRes.matches || [])
-      } catch (err) {
-        console.error('Failed to load dashboard data:', err)
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
-  }, [])
+  const isLoading = players.isLoading || teams.isLoading || matches.isLoading || venues.isLoading
 
-  const totalPlayers = players.length
-  const totalTeams = teams.length
-  const totalVenues = venues.length
+  const liveMatches = live.data?.data || []
+  const liveAvailable = live.data?.provider_available ?? false
 
   return (
-    <div>
+    <div className="space-y-6">
       {/* Page Header */}
       <div className="page-header">
-        <h1 className="page-title">Intelligence Overview</h1>
+        <h1 className="page-title">Dashboard</h1>
         <p className="page-subtitle">
-          Cricket analytics powered by Cricsheet historical data
+          Cricket intelligence powered by 8,250+ historical matches
         </p>
       </div>
 
       {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <StatCard
-          label="Players Tracked"
-          value={totalPlayers}
-          icon={Users}
-          color="bg-brand-600"
-        />
-        <StatCard
-          label="Teams"
-          value={totalTeams}
-          icon={Shield}
-          color="bg-emerald-600"
-        />
-        <StatCard
-          label="Matches Analyzed"
-          value={matches.length}
-          change="IPL matches"
-          icon={Trophy}
-          color="bg-amber-500"
-        />
-        <StatCard
-          label="Venues"
-          value={totalVenues}
-          icon={MapPin}
-          color="bg-violet-600"
-        />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {isLoading ? (
+          Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
+        ) : (
+          <>
+            <StatSummary 
+              label="Players" 
+              value={players.data?.total?.toLocaleString() || '—'} 
+              icon={Users} 
+              color="bg-brand-600" 
+            />
+            <StatSummary 
+              label="Teams" 
+              value={teams.data?.total?.toLocaleString() || '—'} 
+              icon={Shield} 
+              color="bg-emerald-600" 
+            />
+            <StatSummary 
+              label="Matches" 
+              value={matches.data?.total?.toLocaleString() || '—'} 
+              icon={Trophy} 
+              color="bg-amber-600" 
+            />
+            <StatSummary 
+              label="Venues" 
+              value={venues.data?.total?.toLocaleString() || '—'} 
+              icon={MapPin} 
+              color="bg-purple-600" 
+            />
+          </>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-        {/* Trending Players */}
-        <div className="lg:col-span-2 card">
-          <div className="px-6 py-4 border-b border-surface-200">
-            <h2 className="text-lg font-semibold text-gray-900">Trending Players</h2>
-            <p className="text-sm text-gray-500 mt-0.5">Players with the highest form scores</p>
-          </div>
-          {loading ? (
-            <div className="p-6 text-center text-gray-500">Loading...</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    <th className="px-6 py-3">Player</th>
-                    <th className="px-6 py-3">Team</th>
-                    <th className="px-6 py-3 text-right">Form Score</th>
-                    <th className="px-6 py-3 text-right">Runs</th>
-                    <th className="px-6 py-3 text-right">SR</th>
-                    <th className="px-6 py-3 text-right">Wkts</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-surface-100">
-                  {players.filter(p => p.form_score != null).slice(0, 10).map((player) => (
-                    <tr key={player.id} className="hover:bg-surface-50 cursor-pointer transition-colors">
-                      <td className="px-6 py-4">
-                        <span className="text-sm font-medium text-gray-900">{player.name}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="badge-blue">{player.team_name || '-'}</span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        {player.form_score != null && <FormBadge score={player.form_score} />}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <span className="text-sm font-mono text-gray-700">{player.career_runs?.toLocaleString() || '-'}</span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <span className="text-sm font-mono text-gray-700">{player.strike_rate?.toFixed(1) || '-'}</span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <span className="text-sm font-mono text-gray-700">{player.career_wickets || '-'}</span>
-                      </td>
-                    </tr>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* LIVE NOW - Left Column */}
+        <div className="lg:col-span-2">
+          <div className="card">
+            <div className="px-4 py-3 border-b border-surface-200/50 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Radio className="h-4 w-4 text-cricket-green" />
+                <h2 className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Live Now</h2>
+              </div>
+              <div className="flex items-center gap-2">
+                {liveAvailable ? (
+                  <span className="flex items-center gap-1.5 text-[10px] text-gray-500">
+                    <span className="live-dot" />
+                    Live
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-[10px] text-gray-600">
+                    <WifiOff className="h-3 w-3" />
+                    Provider unavailable
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4">
+              {live.isLoading ? (
+                <div className="space-y-3">
+                  <SkeletonMatch />
+                  <SkeletonMatch />
+                </div>
+              ) : liveMatches.length > 0 ? (
+                <div className="space-y-3">
+                  {liveMatches.slice(0, 3).map((match) => (
+                    <Link
+                      key={match.id}
+                      to={`/live`}
+                      className="match-card-live block"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          {match.match_type && (
+                            <FormatBadge format={match.match_type} />
+                          )}
+                          {match.venue && (
+                            <span className="text-[10px] text-gray-500 truncate max-w-[200px]">
+                              {match.venue}
+                            </span>
+                          )}
+                        </div>
+                        <span className="flex items-center gap-1 text-[10px] text-cricket-green">
+                          <span className="live-dot" />
+                          LIVE
+                        </span>
+                      </div>
+                      {match.teams && match.teams.length >= 2 && (
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-100">
+                              {match.teams[0]?.name || 'TBA'}
+                            </p>
+                            {match.teams[0]?.scores && (
+                              <p className="text-xs font-mono text-gray-300">{match.teams[0].scores}</p>
+                            )}
+                          </div>
+                          <span className="text-xs text-gray-500 font-medium px-2">vs</span>
+                          <div className="text-right">
+                            <p className="text-sm font-semibold text-gray-100">
+                              {match.teams[1]?.name || 'TBA'}
+                            </p>
+                            {match.teams[1]?.scores && (
+                              <p className="text-xs font-mono text-gray-300">{match.teams[1].scores}</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {match.status && (
+                        <p className="text-[10px] text-gray-500 mt-2 text-center">{match.status}</p>
+                      )}
+                    </Link>
                   ))}
-                </tbody>
-              </table>
+                </div>
+              ) : (
+                <EmptyState
+                  icon={<Radio className="h-8 w-8 text-gray-600" />}
+                  title="No live matches right now"
+                  message={liveAvailable 
+                    ? "Check back later for live match updates." 
+                    : "Live data provider is not configured. Set CRICKETDATA_API_KEY to enable live scores."
+                  }
+                />
+              )}
+              {liveMatches.length > 0 && (
+                <Link 
+                  to="/live" 
+                  className="flex items-center justify-center gap-1 mt-3 text-xs text-brand-400 hover:text-brand-300 transition-colors"
+                >
+                  View all live matches
+                  <ArrowRight className="h-3 w-3" />
+                </Link>
+              )}
             </div>
-          )}
+          </div>
         </div>
 
-        {/* Team Rankings */}
-        <div className="card">
-          <div className="px-6 py-4 border-b border-surface-200">
-            <h2 className="text-lg font-semibold text-gray-900">Team Rankings</h2>
-            <p className="text-sm text-gray-500 mt-0.5">By overall strength</p>
-          </div>
-          {loading ? (
-            <div className="p-6 text-center text-gray-500">Loading...</div>
-          ) : (
-            <div className="divide-y divide-surface-100">
-              {teams.filter(t => t.overall_strength_score != null).slice(0, 8).map((team, index) => (
-                <div key={team.id} className="px-6 py-4 hover:bg-surface-50 transition-colors">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <span className="text-sm font-bold text-gray-400 w-6">
-                        {index + 1}
+        {/* TOP PERFORMERS - Right Column */}
+        <div className="lg:col-span-1">
+          <div className="card">
+            <div className="px-4 py-3 border-b border-surface-200/50">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-brand-400" />
+                <h2 className="text-xs font-semibold text-gray-300 uppercase tracking-wider">
+                  Top Performers
+                </h2>
+              </div>
+              <p className="text-[10px] text-gray-500 mt-0.5">
+                By form score · {format === 'All' ? 'T20' : format}
+              </p>
+            </div>
+
+            <div className="divide-y divide-surface-200/30">
+              {players.isLoading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="px-4 py-3 space-y-2">
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-3 w-1/2" />
+                  </div>
+                ))
+              ) : players.isError ? (
+                <div className="p-4">
+                  <ErrorCard 
+                    message="Failed to load player data" 
+                    onRetry={() => players.refetch()} 
+                  />
+                </div>
+              ) : (players.data?.players || []).filter(p => p.form_score != null).length > 0 ? (
+                (players.data?.players || [])
+                  .filter(p => p.form_score != null)
+                  .slice(0, 8)
+                  .map((player, idx) => (
+                    <Link
+                      key={player.id}
+                      to={`/players/${player.id}`}
+                      className="player-row"
+                    >
+                      <span className="text-xs font-bold text-gray-600 w-5 text-right">
+                        {idx + 1}
                       </span>
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">{team.name}</p>
-                        <p className="text-xs text-gray-500">{team.win_rate?.toFixed(1)}% win rate ({team.matches}M {team.wins}W)</p>
+                      <div className="player-avatar">
+                        {player.name?.charAt(0) || '?'}
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-brand-600">{team.overall_strength_score?.toFixed(1)}</p>
-                      <p className="text-xs text-gray-500">strength</p>
-                    </div>
-                  </div>
-                  {/* Strength bar */}
-                  <div className="mt-2 h-1.5 bg-surface-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-brand-500 rounded-full"
-                      style={{ width: `${team.overall_strength_score || 0}%` }}
-                    />
-                  </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-200 truncate">
+                          {player.name}
+                        </p>
+                        <p className="text-[10px] text-gray-500">
+                          {player.team_name || player.country || '—'}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <FormScoreBadge score={player.form_score} />
+                      </div>
+                    </Link>
+                  ))
+              ) : (
+                <div className="p-4">
+                  <EmptyState 
+                    title="No players found" 
+                    message="No player data available for this format." 
+                  />
                 </div>
-              ))}
+              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Matches */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* RECENT RESULTS */}
         <div className="card">
-          <div className="px-6 py-4 border-b border-surface-200">
-            <h2 className="text-lg font-semibold text-gray-900">Recent Matches</h2>
-            <p className="text-sm text-gray-500 mt-0.5">Latest results</p>
-          </div>
-          {loading ? (
-            <div className="p-6 text-center text-gray-500">Loading...</div>
-          ) : (
-            <div className="divide-y divide-surface-100">
-              {matches.slice(0, 8).map((match) => (
-                <div key={match.id} className="px-6 py-4 hover:bg-surface-50 transition-alls">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-gray-900">{match.team_a}</span>
-                        <span className="text-xs text-gray-400">vs</span>
-                        <span className="text-sm font-bold text-gray-900">{match.team_b}</span>
-                        <span className="badge-amber">{match.format}</span>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-1">{match.match_date} {match.venue ? `· ${match.venue}` : ''}</p>
-                    </div>
-                    <p className="text-sm text-brand-600 font-medium text-right max-w-[200px] truncate">{match.result}</p>
-                  </div>
-                </div>
-              ))}
+          <div className="px-4 py-3 border-b border-surface-200/50 flex items-center justify-between">
+            <div>
+              <h2 className="text-xs font-semibold text-gray-300 uppercase tracking-wider">
+                Recent Results
+              </h2>
+              <p className="text-[10px] text-gray-500 mt-0.5">Latest match outcomes</p>
             </div>
-          )}
+            <Link to="/matches" className="text-[10px] text-brand-400 hover:text-brand-300 transition-colors">
+              View all →
+            </Link>
+          </div>
+
+          <div className="divide-y divide-surface-200/30">
+            {matches.isLoading ? (
+              Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="px-4 py-3">
+                  <SkeletonMatch />
+                </div>
+              ))
+            ) : matches.isError ? (
+              <div className="p-4">
+                <ErrorCard 
+                  message="Failed to load matches" 
+                  onRetry={() => matches.refetch()} 
+                />
+              </div>
+            ) : (matches.data?.matches || []).length > 0 ? (
+              (matches.data?.matches || []).slice(0, 6).map((match) => (
+                <Link
+                  key={match.id}
+                  to={`/matches/${match.id}`}
+                  className="block px-4 py-3 hover:bg-surface-100/50 transition-colors"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-gray-200">
+                        {match.team_a || 'TBD'}
+                      </span>
+                      <span className="text-[10px] text-gray-600">vs</span>
+                      <span className="text-sm font-semibold text-gray-200">
+                        {match.team_b || 'TBD'}
+                      </span>
+                    </div>
+                    <FormatBadge format={match.format} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-[10px] text-gray-500">
+                      {match.match_date && <span>{match.match_date}</span>}
+                      {match.venue && (
+                        <>
+                          <span>·</span>
+                          <span className="truncate max-w-[150px]">{match.venue}</span>
+                        </>
+                      )}
+                    </div>
+                    <p className="text-[10px] font-medium text-brand-400 truncate max-w-[180px] text-right">
+                      {match.result}
+                    </p>
+                  </div>
+                </Link>
+              ))
+            ) : (
+              <div className="p-4">
+                <EmptyState 
+                  title="No recent matches" 
+                  message="No match data available for this format." 
+                />
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Venue Insights */}
+        {/* VENUE INSIGHTS */}
         <div className="card">
-          <div className="px-6 py-4 border-b border-surface-200">
-            <h2 className="text-lg font-semibold text-gray-900">Venue Insights</h2>
-            <p className="text-sm text-gray-500 mt-0.5">Key venue analytics</p>
+          <div className="px-4 py-3 border-b border-surface-200/50 flex items-center justify-between">
+            <div>
+              <h2 className="text-xs font-semibold text-gray-300 uppercase tracking-wider">
+                Venue Insights
+              </h2>
+              <p className="text-[10px] text-gray-500 mt-0.5">Ground analytics</p>
+            </div>
+            <Link to="/venues" className="text-[10px] text-brand-400 hover:text-brand-300 transition-colors">
+              View all →
+            </Link>
           </div>
-          {loading ? (
-            <div className="p-6 text-center text-gray-500">Loading...</div>
-          ) : (
-            <div className="divide-y divide-surface-100">
-              {venues.filter(v => v.total_matches && v.total_matches > 0).slice(0, 6).map((venue) => (
-                <div key={venue.id} className="px-6 py-4 hover:bg-surface-50 transition-colors">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{venue.name}</p>
-                      <p className="text-xs text-gray-500">{venue.total_matches} matches · Avg 1st inn: {venue.avg_first_innings_score?.toFixed(0) || '-'}</p>
-                    </div>
-                    <div className="flex items-center gap-4 text-right">
+
+          <div className="divide-y divide-surface-200/30">
+            {venues.isLoading ? (
+              Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="px-4 py-3 space-y-2">
+                  <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="h-3 w-1/2" />
+                </div>
+              ))
+            ) : venues.isError ? (
+              <div className="p-4">
+                <ErrorCard 
+                  message="Failed to load venues" 
+                  onRetry={() => venues.refetch()} 
+                />
+              </div>
+            ) : (venues.data?.venues || []).filter(v => v.total_matches && v.total_matches > 0).length > 0 ? (
+              (venues.data?.venues || [])
+                .filter(v => v.total_matches && v.total_matches > 0)
+                .slice(0, 5)
+                .map((venue) => (
+                  <Link
+                    key={venue.id}
+                    to={`/venues/${venue.id}`}
+                    className="block px-4 py-3 hover:bg-surface-100/50 transition-colors"
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
                       <div>
-                        <p className="text-sm font-bold text-emerald-600">{venue.chasing_win_pct?.toFixed(1) || '-'}%</p>
-                        <p className="text-xs text-gray-500">chase win</p>
+                        <p className="text-sm font-medium text-gray-200">{venue.name}</p>
+                        <p className="text-[10px] text-gray-500">
+                          {venue.city}{venue.country ? `, ${venue.country}` : ''}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-bold text-gray-200">
+                          {venue.total_matches}
+                        </p>
+                        <p className="text-[10px] text-gray-500">matches</p>
                       </div>
                     </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-500">Avg 1st inn</span>
+                        <span className="text-[10px] font-semibold text-gray-300">
+                          {venue.avg_first_innings_score?.toFixed(0) || '—'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-500">Chase win</span>
+                        <span className="text-[10px] font-semibold text-gray-300">
+                          {venue.chasing_win_pct?.toFixed(1) || '—'}%
+                        </span>
+                      </div>
+                    </div>
+                  </Link>
+                ))
+            ) : (
+              <div className="p-4">
+                <EmptyState 
+                  title="No venues found" 
+                  message="No venue data available for this format." 
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Data Source */}
-      <div className="mt-8 p-4 bg-surface-50 rounded-lg border border-surface-200">
-        <p className="text-sm text-gray-600">
-          <strong>Data Source:</strong> Historical ball-by-ball data from{' '}
-          <a href="https://cricsheet.org" target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline">
+      {/* Data Source Footer */}
+      <div className="card p-3">
+        <p className="text-[10px] text-gray-500 text-center">
+          <strong className="text-gray-400">Data:</strong> Historical data from{' '}
+          <a 
+            href="https://cricsheet.org" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="text-brand-400 hover:text-brand-300"
+          >
             Cricsheet
           </a>
-          {' '}— Men's IPL matches (all available seasons). Coverage depends on Cricsheet data availability.
+          {liveAvailable && (
+            <>
+              {' '}· Live data: CricketData.org
+            </>
+          )}
+          {' '}· Platform analytics computed from 4.13M match deliveries
         </p>
       </div>
     </div>

@@ -8,9 +8,10 @@ import './index.css'
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutes
+      staleTime: 5 * 60 * 1000, // 5 minutes - historical data is stable
       retry: 2,
       refetchOnWindowFocus: false,
+      refetchOnReconnect: 'always',
     },
   },
 })

@@ -1,164 +1,174 @@
-import { useParams } from 'react-router-dom'
-import { ArrowLeft, TrendingUp, Activity } from 'lucide-react'
-
-const mockTeam = {
-  name: 'India',
-  shortName: 'IND',
-  country: 'India',
-  overallStrength: 91.2,
-  battingStrength: 94.5,
-  bowlingStrength: 87.8,
-  winRate: 72.5,
-  performance: {
-    matches: 45, wins: 33, losses: 10, ties: 1, noResults: 1,
-    avgFirstInnings: 178, avgSecondInnings: 168,
-    avgPowerplay: 48, avgMiddle: 62, avgDeath: 68,
-  },
-  bowling: {
-    avgEconomy: 7.2, powerplayEconomy: 6.5,
-    middleEconomy: 7.0, deathEconomy: 9.2,
-  },
-  situational: {
-    chasingWinPct: 68.5, defendingWinPct: 76.2,
-  },
-  recentResults: [
-    { opponent: 'AUS', result: 'Won', margin: '7 wickets', date: '2024-01-15' },
-    { opponent: 'ENG', result: 'Won', margin: '15 runs', date: '2024-01-12' },
-    { opponent: 'SA', result: 'Lost', margin: '8 runs', date: '2024-01-08' },
-    { opponent: 'NZ', result: 'Won', margin: '6 wickets', date: '2024-01-05' },
-    { opponent: 'PAK', result: 'Won', margin: '5 wickets', date: '2024-01-01' },
-  ],
-}
+import { useParams, Link } from 'react-router-dom'
+import { ArrowLeft, Shield, TrendingUp, Activity } from 'lucide-react'
+import { useTeam, useTeamAnalytics } from '@/hooks/useQueries'
+import { SkeletonCard, Skeleton } from '@/components/ui/Skeleton'
+import ErrorCard from '@/components/ui/ErrorCard'
+import EmptyState from '@/components/ui/EmptyState'
 
 export default function TeamDetail() {
-  const { id: _id } = useParams()
+  const { id } = useParams()
+  const { data: team, isLoading: teamLoading, isError: teamError, refetch: refetchTeam } = useTeam(id || '')
+  const { data: analytics, isLoading: analyticsLoading } = useTeamAnalytics(id || '')
+
+  const isLoading = teamLoading || analyticsLoading
+
+  if (teamError) {
+    return (
+      <div>
+        <Link to="/teams" className="flex items-center text-sm text-gray-500 hover:text-gray-300 mb-6 transition-colors">
+          <ArrowLeft className="h-4 w-4 mr-1" />
+          Back to Teams
+        </Link>
+        <ErrorCard message="Failed to load team data" onRetry={() => refetchTeam()} />
+      </div>
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+      </div>
+    )
+  }
+
+  if (!team) {
+    return (
+      <div>
+        <Link to="/teams" className="flex items-center text-sm text-gray-500 hover:text-gray-300 mb-6 transition-colors">
+          <ArrowLeft className="h-4 w-4 mr-1" />
+          Back to Teams
+        </Link>
+        <EmptyState title="Team not found" message="This team could not be found." />
+      </div>
+    )
+  }
 
   return (
-    <div>
-      <button
-        onClick={() => window.history.back()}
-        className="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-6 transition-colors"
-      >
+    <div className="space-y-6">
+      <Link to="/teams" className="flex items-center text-sm text-gray-500 hover:text-gray-300 transition-colors">
         <ArrowLeft className="h-4 w-4 mr-1" />
         Back to Teams
-      </button>
+      </Link>
 
       {/* Team Header */}
-      <div className="card p-6 mb-6">
+      <div className="card p-5">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">{mockTeam.name}</h1>
-            <p className="text-sm text-gray-500 mt-1">{mockTeam.country}</p>
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-brand-500/15 border border-brand-500/30 flex items-center justify-center">
+              <Shield className="h-6 w-6 text-brand-400" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-100">{team.name}</h1>
+              <p className="text-sm text-gray-500">
+                {team.country || '—'} · {team.short_name || ''}
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-6">
-            <div className="text-center">
-              <div className="w-20 h-20 rounded-full bg-brand-50 border-4 border-brand-500 flex items-center justify-center">
-                <span className="text-2xl font-bold text-brand-700">{mockTeam.overallStrength}</span>
+          <div className="flex items-center gap-4">
+            {team.overall_strength_score != null && (
+              <div className="text-center">
+                <div className="w-16 h-16 rounded-full bg-brand-500/10 border-2 border-brand-500/30 flex items-center justify-center">
+                  <span className="text-xl font-bold text-brand-400">{team.overall_strength_score.toFixed(1)}</span>
+                </div>
+                <p className="text-[10px] text-gray-500 mt-1">Overall</p>
               </div>
-              <p className="text-xs font-medium text-gray-500 mt-2">Overall</p>
-            </div>
-            <div className="text-center">
-              <div className="w-16 h-16 rounded-full bg-emerald-50 border-2 border-emerald-400 flex items-center justify-center">
-                <span className="text-xl font-bold text-emerald-700">{mockTeam.battingStrength}</span>
+            )}
+            {team.batting_strength_score != null && (
+              <div className="text-center">
+                <div className="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
+                  <span className="text-lg font-bold text-emerald-400">{team.batting_strength_score.toFixed(1)}</span>
+                </div>
+                <p className="text-[10px] text-gray-500 mt-1">Batting</p>
               </div>
-              <p className="text-xs font-medium text-gray-500 mt-2">Batting</p>
-            </div>
-            <div className="text-center">
-              <div className="w-16 h-16 rounded-full bg-blue-50 border-2 border-blue-400 flex items-center justify-center">
-                <span className="text-xl font-bold text-blue-700">{mockTeam.bowlingStrength}</span>
+            )}
+            {team.bowling_strength_score != null && (
+              <div className="text-center">
+                <div className="w-14 h-14 rounded-full bg-blue-500/10 border border-blue-500/30 flex items-center justify-center">
+                  <span className="text-lg font-bold text-blue-400">{team.bowling_strength_score.toFixed(1)}</span>
+                </div>
+                <p className="text-[10px] text-gray-500 mt-1">Bowling</p>
               </div>
-              <p className="text-xs font-medium text-gray-500 mt-2">Bowling</p>
-            </div>
+            )}
           </div>
         </div>
       </div>
 
       {/* Performance Overview */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-        {[
-          { label: 'Matches', value: mockTeam.performance.matches },
-          { label: 'Wins', value: mockTeam.performance.wins },
-          { label: 'Losses', value: mockTeam.performance.losses },
-          { label: 'Win Rate', value: `${mockTeam.winRate}%` },
-          { label: 'Avg 1st Innings', value: mockTeam.performance.avgFirstInnings },
-        ].map((stat) => (
-          <div key={stat.label} className="card p-4 text-center">
-            <p className="text-xl font-bold text-gray-900">{stat.value}</p>
-            <p className="text-xs text-gray-500 mt-1">{stat.label}</p>
-          </div>
-        ))}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="card p-4 text-center">
+          <p className="text-2xl font-bold text-gray-100">{team.matches || 0}</p>
+          <p className="text-[10px] text-gray-500 mt-1">Matches</p>
+        </div>
+        <div className="card p-4 text-center">
+          <p className="text-2xl font-bold text-cricket-green">{team.wins || 0}</p>
+          <p className="text-[10px] text-gray-500 mt-1">Wins</p>
+        </div>
+        <div className="card p-4 text-center">
+          <p className="text-2xl font-bold text-cricket-red">{team.losses || 0}</p>
+          <p className="text-[10px] text-gray-500 mt-1">Losses</p>
+        </div>
+        <div className="card p-4 text-center">
+          <p className="text-2xl font-bold text-brand-400">{team.win_rate?.toFixed(1) || '—'}%</p>
+          <p className="text-[10px] text-gray-500 mt-1">Win Rate</p>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        {/* Phase Performance */}
-        <div className="card p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <TrendingUp className="h-5 w-5 text-brand-600" />
-            <h2 className="text-lg font-semibold text-gray-900">Phase Performance</h2>
-          </div>
-          <div className="space-y-4">
-            {[
-              { name: 'Powerplay', runs: mockTeam.performance.avgPowerplay, econ: mockTeam.bowling.powerplayEconomy, color: 'bg-blue-500' },
-              { name: 'Middle Overs', runs: mockTeam.performance.avgMiddle, econ: mockTeam.bowling.middleEconomy, color: 'bg-amber-500' },
-              { name: 'Death Overs', runs: mockTeam.performance.avgDeath, econ: mockTeam.bowling.deathEconomy, color: 'bg-red-500' },
-            ].map((phase) => (
-              <div key={phase.name} className="p-3 rounded-lg bg-surface-50">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700">{phase.name}</span>
-                  <span className={`w-2 h-2 rounded-full ${phase.color}`} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-xs text-gray-500">Avg Runs</p>
-                    <p className="text-sm font-bold text-gray-900">{phase.runs}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Economy</p>
-                    <p className="text-sm font-bold text-gray-900">{phase.econ}</p>
-                  </div>
-                </div>
+      {/* Analytics */}
+      {analytics && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="card p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <TrendingUp className="h-4 w-4 text-brand-400" />
+              <h2 className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Performance</h2>
+            </div>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-2 rounded-lg bg-surface-100/50">
+                <span className="text-xs text-gray-400">Avg 1st Innings</span>
+                <span className="text-sm font-bold text-gray-200">
+                  {analytics.avg_first_innings_score?.toFixed(0) || '—'}
+                </span>
               </div>
-            ))}
+              <div className="flex items-center justify-between p-2 rounded-lg bg-surface-100/50">
+                <span className="text-xs text-gray-400">Avg 2nd Innings</span>
+                <span className="text-sm font-bold text-gray-200">
+                  {analytics.avg_second_innings_score?.toFixed(0) || '—'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-lg bg-surface-100/50">
+                <span className="text-xs text-gray-400">Avg Economy</span>
+                <span className="text-sm font-bold text-gray-200">
+                  {analytics.avg_economy?.toFixed(2) || '—'}
+                </span>
+              </div>
+            </div>
           </div>
-        </div>
 
-        {/* Situational */}
-        <div className="card p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Activity className="h-5 w-5 text-brand-600" />
-            <h2 className="text-lg font-semibold text-gray-900">Situational Performance</h2>
-          </div>
-          <div className="grid grid-cols-2 gap-4 mb-6">
-            <div className="p-4 rounded-lg bg-emerald-50 text-center">
-              <p className="text-3xl font-bold text-emerald-700">{mockTeam.situational.chasingWinPct}%</p>
-              <p className="text-sm text-gray-600 mt-1">Chasing Win %</p>
+          <div className="card p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Activity className="h-4 w-4 text-brand-400" />
+              <h2 className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Situational</h2>
             </div>
-            <div className="p-4 rounded-lg bg-blue-50 text-center">
-              <p className="text-3xl font-bold text-blue-700">{mockTeam.situational.defendingWinPct}%</p>
-              <p className="text-sm text-gray-600 mt-1">Defending Win %</p>
-            </div>
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">Recent Results</h3>
-            <div className="space-y-2">
-              {mockTeam.recentResults.map((result, idx) => (
-                <div key={idx} className="flex items-center justify-between p-2 rounded-lg hover:bg-surface-50">
-                  <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${result.result === 'Won' ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                    <span className="text-sm font-medium text-gray-900">vs {result.opponent}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className={`text-sm font-medium ${result.result === 'Won' ? 'text-emerald-600' : 'text-red-600'}`}>
-                      {result.result}
-                    </span>
-                    <span className="text-xs text-gray-400 ml-2">{result.margin}</span>
-                  </div>
-                </div>
-              ))}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-3 rounded-lg bg-cricket-green/5 text-center border border-cricket-green/10">
+                <p className="text-2xl font-bold text-cricket-green">
+                  {analytics.chasing_win_pct?.toFixed(1) || '—'}%
+                </p>
+                <p className="text-[10px] text-gray-500 mt-1">Chasing Win</p>
+              </div>
+              <div className="p-3 rounded-lg bg-blue-500/5 text-center border border-blue-500/10">
+                <p className="text-2xl font-bold text-blue-400">
+                  {analytics.defending_win_pct?.toFixed(1) || '—'}%
+                </p>
+                <p className="text-[10px] text-gray-500 mt-1">Defending Win</p>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
