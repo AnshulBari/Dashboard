@@ -1045,14 +1045,18 @@ Created `data_pipeline/pipeline/scorecards.py` — deterministic JSON-based scor
 
 Verified all analytical dimensions (Player, Team, Competition, Season, Venue, Opponent, Format, Time) are supported by the data model. Fixed period inconsistency ('all-time' → 'career' for 1,860 Test stats rows) and removed 699 duplicate affiliation rows. 32 new dimension tests. All endpoints verified. Database: 149 MB.
 
-### Not yet implemented (Phase 5.8+)
+### Phase 5.8: Analytical Query Layer ✅
+
+Created `backend/services/analytics.py` — reusable SQL aggregation functions for all analytical dimensions (player career/year/competition/season/venue/opponent, team format/year/head-to-head/venue/competition, competition summaries, venue analytics, match scorecards, data completeness). 22 new API endpoints at `/api/analytics`. 42 new tests. Fixed SQL operator precedence bug in team-vs-team format filter. Database: 149 MB.
+
+### Not yet implemented (Phase 5.9+)
 
 - Win probability model
 - Player impact metric
 - Advanced frontend filters (format/competition/season selectors)
 - Frontend integration with live data
 
-See `docs/phase-5.1.md` through `docs/phase-5.7.md` for details.
+See `docs/phase-5.1.md` through `docs/phase-5.8.md` for details.
 
 ---
 

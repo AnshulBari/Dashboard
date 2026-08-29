@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 
-from backend.routes import players, teams, venues, matches, matchups, rankings, news, live, competitions
+from backend.routes import players, teams, venues, matches, matchups, rankings, news, live, competitions, analytics
 from backend.utils.database import init_db, close_db
 
 load_dotenv()
@@ -64,6 +64,7 @@ app.include_router(rankings.router, prefix="/api/rankings", tags=["Rankings"])
 app.include_router(news.router, prefix="/api/news", tags=["News"])
 app.include_router(live.router, prefix="/api/live", tags=["Live"])
 app.include_router(competitions.router, prefix="/api/competitions", tags=["Competitions"])
+app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 
 
 @app.get("/")
