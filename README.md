@@ -1049,14 +1049,18 @@ Verified all analytical dimensions (Player, Team, Competition, Season, Venue, Op
 
 Created `backend/services/analytics.py` — reusable SQL aggregation functions for all analytical dimensions (player career/year/competition/season/venue/opponent, team format/year/head-to-head/venue/competition, competition summaries, venue analytics, match scorecards, data completeness). 22 new API endpoints at `/api/analytics`. 42 new tests. Fixed SQL operator precedence bug in team-vs-team format filter. Database: 149 MB.
 
-### Not yet implemented (Phase 5.9+)
+### Phase 5.9: Backend Production Hardening ✅
+
+Fixed connection leaks in analytics routes, added format/UUID input validation on all 22 analytics endpoints, added global exception handler to prevent error leakage, improved health endpoint with DB connectivity check, whitelisted sort columns to prevent SQL injection. 47 new API-level tests. Database: 149 MB.
+
+### Not yet implemented (Phase 5.10+)
 
 - Win probability model
 - Player impact metric
 - Advanced frontend filters (format/competition/season selectors)
 - Frontend integration with live data
 
-See `docs/phase-5.1.md` through `docs/phase-5.8.md` for details.
+See `docs/phase-5.1.md` through `docs/phase-5.9.md` for details.
 
 ---
 

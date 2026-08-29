@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from backend.utils.database import get_db
+from backend.utils.validation import validate_format, validate_sort_column, validate_sort_order, PLAYER_SORT_COLUMNS
 
 router = APIRouter()
 
@@ -76,16 +77,9 @@ async def list_players(
     count_query = text(f"SELECT COUNT(*) FROM ({str(query)}) sub")
     total = db.execute(count_query, params).scalar() or 0
 
-    # Sort
-    sort_column = {
-        "form_score": "pf.form_score",
-        "name": "p.canonical_name",
-        "runs": "pbs.runs",
-        "wickets": "pws.wickets",
-        "batting_average": "pbs.batting_average",
-    }.get(sort_by, "pf.form_score")
-
-    order = "DESC" if sort_order.lower() == "desc" else "ASC"
+    # Sort (whitelisted columns only)
+    sort_column = validate_sort_column(sort_by, PLAYER_SORT_COLUMNS, "form_score")
+    order = validate_sort_order(sort_order)
     query = text(str(query) + f" ORDER BY {sort_column} {order} NULLS LAST")
     query = text(str(query) + " LIMIT :limit OFFSET :offset")
     params["limit"] = limit

@@ -12,13 +12,17 @@ Design principles:
 """
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import os
+import logging
 
 from backend.routes import players, teams, venues, matches, matchups, rankings, news, live, competitions, analytics
-from backend.utils.database import init_db, close_db
+from backend.utils.database import init_db, close_db, engine
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -67,6 +71,17 @@ app.include_router(competitions.router, prefix="/api/competitions", tags=["Compe
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 
 
+# Global exception handler for unhandled errors
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch-all handler to prevent internal errors from leaking details."""
+    logger.error(f"Unhandled error: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
+
+
 @app.get("/")
 async def root():
     return {
@@ -78,4 +93,14 @@ async def root():
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy"}
+    """Health check with lightweight database connectivity test."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(__import__("sqlalchemy").text("SELECT 1"))
+        return {"status": "healthy", "database": "connected"}
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unhealthy", "database": "disconnected"},
+        )
