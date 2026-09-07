@@ -16,12 +16,17 @@ Status lifecycle:
 
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import create_engine, text
 
 logger = logging.getLogger(__name__)
+
+
+def _utc_now() -> datetime:
+    """Return naive UTC for the manifest's timezone-naive timestamp columns."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 # Status constants
 PENDING = "PENDING"
@@ -137,7 +142,7 @@ class BatchManifest:
                 ),
                 {
                     "status": RUNNING,
-                    "now": datetime.utcnow(),
+                    "now": _utc_now(),
                     "ds": dataset,
                     "bid": batch_id,
                 },
@@ -171,7 +176,7 @@ class BatchManifest:
                 ),
                 {
                     "status": COMPLETED,
-                    "now": datetime.utcnow(),
+                    "now": _utc_now(),
                     "mc": match_count,
                     "dc": delivery_count,
                     "ic": innings_count,

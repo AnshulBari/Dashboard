@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from backend.utils.database import get_db
+from backend.utils.validation import validate_format, validate_uuid
 
 router = APIRouter()
 
@@ -26,23 +27,33 @@ async def list_venues(
     format: Optional[str] = Query(None),
     country: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
     """List all venues with key statistics."""
-    target_format = format or "T20"
+    target_format = validate_format(format or "T20")
+    where = "WHERE v.country = :country" if country else ""
+    params = {"fmt": target_format, "limit": limit, "offset": offset}
+    if country:
+        params["country"] = country
+
+    total = db.execute(
+        text(f"SELECT COUNT(*) FROM venues v {where}"), params
+    ).scalar() or 0
 
     rows = db.execute(
-        text("""
+        text(f"""
             SELECT
                 v.id, v.name, v.city, v.country, v.capacity,
                 vs.total_matches, vs.avg_first_innings_score, vs.avg_second_innings_score,
                 vs.chasing_win_pct, vs.pace_wickets_pct
             FROM venues v
             LEFT JOIN venue_stats vs ON v.id = vs.venue_id AND vs.format = :fmt
+            {where}
             ORDER BY vs.total_matches DESC NULLS LAST
-            LIMIT :limit
+            LIMIT :limit OFFSET :offset
         """),
-        {"fmt": target_format, "limit": limit}
+        params
     ).fetchall()
 
     venues = []
@@ -51,7 +62,7 @@ async def list_venues(
         d["id"] = str(d["id"])
         venues.append(d)
 
-    return {"venues": venues, "total": len(venues)}
+    return {"venues": venues, "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/{venue_id}/analytics")
@@ -61,7 +72,8 @@ async def get_venue_analytics(
     db: Session = Depends(get_db),
 ):
     """Get comprehensive venue analytics."""
-    target_format = format or "T20"
+    validate_uuid(venue_id, "venue_id")
+    target_format = validate_format(format or "T20")
 
     row = db.execute(
         text("""

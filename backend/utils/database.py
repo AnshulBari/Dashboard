@@ -49,6 +49,10 @@ class Base(DeclarativeBase):
 
 def init_db():
     """Create all tables if they don't exist."""
+    # Import models here so DeclarativeBase metadata is populated even when
+    # init_db is called directly by a setup script or test.
+    from backend.models import entities  # noqa: F401
+
     Base.metadata.create_all(bind=engine)
 
 

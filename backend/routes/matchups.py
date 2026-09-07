@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from backend.utils.database import get_db
+from backend.utils.validation import validate_format, validate_uuid
 
 router = APIRouter()
 
@@ -28,7 +29,7 @@ async def list_matchups(
     db: Session = Depends(get_db),
 ):
     """List top batter-bowler matchups by total runs scored."""
-    target_format = format or "T20"
+    target_format = validate_format(format or "T20")
 
     rows = db.execute(
         text("""
@@ -67,7 +68,9 @@ async def get_matchup(
     db: Session = Depends(get_db),
 ):
     """Get head-to-head matchup between a specific batter and bowler."""
-    target_format = format or "T20"
+    validate_uuid(batter_id, "batter_id")
+    validate_uuid(bowler_id, "bowler_id")
+    target_format = validate_format(format or "T20")
 
     row = db.execute(
         text("""

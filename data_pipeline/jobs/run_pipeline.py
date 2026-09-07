@@ -151,9 +151,9 @@ class CricketPipeline:
             # Runs cannot be negative
             (F.col("runs_batter") >= 0) &
             (F.col("runs_total") >= 0) &
-            # Over number must be reasonable (0-50 for Test, 0-20 for limited overs)
+            # Over number must be within the universal schema's safety bound.
             (F.col("over_number") >= 0) &
-            (F.col("over_number") <= 50) &
+            (F.col("over_number") <= 100) &
             # Ball in over must be 1-6
             (F.col("ball_in_over") >= 1) &
             (F.col("ball_in_over") <= 9)  # 9 because of extras

@@ -20,7 +20,7 @@ Note: This provider requires an API key from https://cricketdata.org
 import os
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
@@ -36,6 +36,72 @@ from backend.providers.base import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _as_bool(value) -> bool:
+    """Normalize provider booleans that may arrive as bools or strings."""
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes"}
+
+
+def _team_names(match: dict) -> tuple[Optional[str], Optional[str]]:
+    """Read both the current API `teams` shape and its legacy fields."""
+    teams = match.get("teams")
+    if isinstance(teams, list):
+        cleaned = [str(team) for team in teams if team]
+        if len(cleaned) >= 2:
+            return cleaned[0], cleaned[1]
+    return match.get("team-1"), match.get("team-2")
+
+
+def _score_text(score: dict) -> Optional[str]:
+    if not isinstance(score, dict):
+        return None
+    runs = score.get("r")
+    if runs is None:
+        return None
+    wickets = score.get("w")
+    overs = score.get("o")
+    value = str(runs)
+    if wickets is not None:
+        value += f"/{wickets}"
+    if overs is not None:
+        value += f" ({overs} ov)"
+    return value
+
+
+def _scores_by_team(match: dict, team_a: Optional[str], team_b: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """Map the current score-array response to the two participating teams."""
+    scores = match.get("score", [])
+    if isinstance(scores, dict):
+        return _score_text(scores), _score_text(match.get("score-2", {}))
+    if not isinstance(scores, list):
+        return None, None
+
+    mapped = {team_a: [], team_b: []}
+    unassigned = []
+    for score in scores:
+        if not isinstance(score, dict):
+            continue
+        rendered = _score_text(score)
+        if rendered is None:
+            continue
+        innings_name = str(score.get("inning", "")).lower()
+        assigned = False
+        for team in (team_a, team_b):
+            if team and str(team).lower() in innings_name:
+                mapped[team].append(rendered)
+                assigned = True
+                break
+        if not assigned:
+            unassigned.append(rendered)
+
+    if not mapped.get(team_a) and unassigned:
+        mapped[team_a] = [unassigned.pop(0)]
+    if not mapped.get(team_b) and unassigned:
+        mapped[team_b] = [unassigned.pop(0)]
+    return " & ".join(mapped.get(team_a, [])) or None, " & ".join(mapped.get(team_b, [])) or None
 
 
 class CricketDataProvider(RankingsProvider, LiveDataProvider):
@@ -202,10 +268,12 @@ class CricketDataProvider(RankingsProvider, LiveDataProvider):
             return []
 
         matches = []
-        fetched_at = datetime.utcnow()
+        fetched_at = datetime.now(timezone.utc)
 
         # CricAPI response structure: {"data": [{...}, ...]}
         match_list = data.get("data", data.get("matches", []))
+        if isinstance(match_list, dict) and match_list.get("id"):
+            match_list = [match_list]
         if not isinstance(match_list, list):
             logger.warning(f"Unexpected response format: {type(match_list)}")
             return []
@@ -213,37 +281,35 @@ class CricketDataProvider(RankingsProvider, LiveDataProvider):
         for match in match_list:
             try:
                 # Normalize status
-                status_str = str(match.get("matchStarted", False)).lower()
-                match_end = str(match.get("matchEnded", False)).lower()
-                
-                if match_end == "true":
+                if _as_bool(match.get("matchEnded", False)):
                     status = MatchStatus.COMPLETED.value
-                elif status_str == "true":
+                elif _as_bool(match.get("matchStarted", False)):
                     status = MatchStatus.LIVE.value
                 else:
                     status = MatchStatus.UPCOMING.value
 
                 # Extract team names
-                team_a = match.get("team-1", "")
-                team_b = match.get("team-2", "")
+                team_a, team_b = _team_names(match)
                 
                 # Skip if no team names
                 if not team_a and not team_b:
                     continue
 
+                score_team_a, score_team_b = _scores_by_team(match, team_a, team_b)
+                match_id = str(match.get("id", match.get("unique_id", "")))
                 live_match = LiveMatch(
-                    match_id=str(match.get("unique_id", match.get("id", ""))),
-                    external_id=str(match.get("unique_id", "")),
+                    match_id=match_id,
+                    external_id=match_id,
                     team_a=str(team_a) if team_a else None,
                     team_b=str(team_b) if team_b else None,
-                    format=match.get("type", ""),
-                    competition=match.get("series", match.get("series_id", "")),
+                    format=match.get("matchType", match.get("type", "")),
+                    competition=match.get("seriesName", match.get("series", match.get("series_id", ""))),
                     venue=match.get("venue", ""),
                     status=status,
                     start_time=match.get("dateTimeGMT", match.get("date", "")),
-                    score_team_a=match.get("score", {}).get("r", None) if isinstance(match.get("score"), dict) else None,
-                    score_team_b=match.get("score-2", {}).get("r", None) if isinstance(match.get("score-2"), dict) else None,
-                    result=match.get("result", ""),
+                    score_team_a=score_team_a,
+                    score_team_b=score_team_b,
+                    result=match.get("status", match.get("result", "")),
                     fetched_at=fetched_at,
                     source="cricketdata.org",
                 )
@@ -262,7 +328,7 @@ class CricketDataProvider(RankingsProvider, LiveDataProvider):
         """
         Get detailed live match state from CricketData.org.
         
-        Uses the 'matchScorecard' endpoint (actual CricAPI endpoint).
+        Uses the current 'match_scorecard' endpoint.
 
         Args:
             match_id: Match unique_id from CricAPI
@@ -270,23 +336,21 @@ class CricketDataProvider(RankingsProvider, LiveDataProvider):
         Returns:
             LiveMatchDetail or None if not found
         """
-        # Actual CricAPI endpoint: /v1/matchScorecard?unique_id=<id>
-        data = self._make_request("matchScorecard", {"unique_id": match_id})
+        data = self._make_request("match_scorecard", {"id": match_id})
 
         if not data:
             return None
 
         # CricAPI response: the match data is at the top level
         match = data.get("data", data)
-        fetched_at = datetime.utcnow()
+        fetched_at = datetime.now(timezone.utc)
 
         # Extract team names
-        team_a = match.get("team-1", "")
-        team_b = match.get("team-2", "")
+        team_a, team_b = _team_names(match)
 
         # Determine status
-        match_started = match.get("matchStarted", False)
-        match_ended = match.get("matchEnded", False)
+        match_started = _as_bool(match.get("matchStarted", False))
+        match_ended = _as_bool(match.get("matchEnded", False))
         
         if match_ended:
             status = MatchStatus.COMPLETED.value
@@ -296,28 +360,37 @@ class CricketDataProvider(RankingsProvider, LiveDataProvider):
             status = MatchStatus.UPCOMING.value
 
         # Extract innings info if available
-        score_data = match.get("score", {})
+        score_value = match.get("score", {})
+        score_rows = score_value if isinstance(score_value, list) else [score_value]
+        score_rows = [row for row in score_rows if isinstance(row, dict)]
+        score_data = score_rows[-1] if score_rows else {}
+        inning_name = str(score_data.get("inning", ""))
+        batting_team = next(
+            (team for team in (team_a, team_b) if team and str(team).lower() in inning_name.lower()),
+            None,
+        )
+        bowling_team = team_b if batting_team == team_a else team_a if batting_team == team_b else None
         
         detail = LiveMatchDetail(
             match_id=match_id,
-            external_id=str(match.get("unique_id", "")),
+            external_id=str(match.get("id", match.get("unique_id", match_id))),
             team_a=str(team_a) if team_a else None,
             team_b=str(team_b) if team_b else None,
-            format=match.get("type", ""),
-            competition=match.get("series", ""),
+            format=match.get("matchType", match.get("type", "")),
+            competition=match.get("seriesName", match.get("series", match.get("series_id", ""))),
             venue=match.get("venue", ""),
             status=status,
-            result=match.get("result", ""),
-            batting_team=None,  # CricAPI doesn't provide this directly
-            bowling_team=None,
-            current_score=score_data.get("r", None) if isinstance(score_data, dict) else None,
-            current_wickets=score_data.get("w", None) if isinstance(score_data, dict) else None,
-            current_overs=score_data.get("o", None) if isinstance(score_data, dict) else None,
-            run_rate=score_data.get("rr", None) if isinstance(score_data, dict) else None,
+            result=match.get("status", match.get("result", "")),
+            batting_team=batting_team,
+            bowling_team=bowling_team,
+            current_score=_score_text(score_data),
+            current_wickets=score_data.get("w"),
+            current_overs=score_data.get("o"),
+            run_rate=score_data.get("rr"),
             target=match.get("target", {}).get("runs") if isinstance(match.get("target"), dict) else None,
             required_run_rate=None,  # Not directly available
-            toss_winner=match.get("toss_winner_team", ""),
-            toss_decision=match.get("toss_winner_elected", ""),
+            toss_winner=match.get("tossWinner", match.get("toss_winner_team", "")),
+            toss_decision=match.get("tossChoice", match.get("toss_winner_elected", "")),
             start_time=match.get("dateTimeGMT", ""),
             last_updated=fetched_at,
             fetched_at=fetched_at,

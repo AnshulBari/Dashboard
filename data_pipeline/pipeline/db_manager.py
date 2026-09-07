@@ -19,7 +19,7 @@ from typing import Optional
 from datetime import date
 
 import pandas as pd
-from sqlalchemy import create_engine, text, event
+from sqlalchemy import create_engine, inspect, text, event
 from sqlalchemy.orm import sessionmaker
 
 logger = logging.getLogger(__name__)
@@ -556,6 +556,9 @@ class DatabaseManager:
                 result_type = row.get("result_type", "win") if "result_type" in df.columns else "win"
                 if not result_type or pd.isna(result_type):
                     result_type = "win"
+                result_type = str(result_type).strip().lower().replace("-", "_").replace(" ", "_")
+                if result_type not in {"win", "tie", "draw", "no_result", "abandoned"}:
+                    result_type = "win" if winner_id else "no_result"
                 
                 # Count deliveries for this match
                 match_deliveries = df[df["match_id"] == match_external_id]
@@ -776,13 +779,8 @@ class DatabaseManager:
         """
         # Check if deliveries table exists
         try:
-            with self.engine.connect() as conn:
-                exists = conn.execute(text(
-                    "SELECT COUNT(*) FROM information_schema.tables "
-                    "WHERE table_name = 'deliveries' AND table_schema = 'public'"
-                )).scalar()
-                if not exists:
-                    return 0
+            if not inspect(self.engine).has_table("deliveries"):
+                return 0
         except Exception:
             return 0
         

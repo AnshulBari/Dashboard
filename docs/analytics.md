@@ -31,6 +31,10 @@ Configuration is stored in the `format_config` table and accessed via `data_pipe
 | Boundary % | `((fours + sixes) / balls_faced) * 100` |
 | Dot Ball % | `(dot_balls / balls_faced) * 100` |
 
+Wides do not count as balls faced; no-balls do. A dot ball requires a faced
+delivery with zero total runs. A four or six marked `non_boundary` by
+Cricsheet (all-run fours or overthrows) is not counted as a boundary.
+
 ### Phase Metrics
 
 - `powerplay_runs`, `powerplay_strike_rate`
@@ -64,6 +68,14 @@ Phase boundaries are format-aware (see above).
 | Strike Rate | `balls_bowled / wickets` |
 | Dot Ball % | `(dot_balls / balls_bowled) * 100` |
 
+`balls_bowled` counts legal deliveries only (excluding wides and no-balls).
+Runs conceded include batter runs plus wide/no-ball extras, but exclude byes,
+leg-byes and penalties. Run-outs, retirements, obstruction and timed-out
+dismissals, plus handled-ball and hit-the-ball-twice dismissals, are not
+credited to the bowler. A bowling dot requires zero total runs, so a bye or
+leg-bye delivery is not a dot even though those runs are not charged to the
+bowler.
+
 ### Phase Metrics
 
 - `powerplay_overs/wickets/economy`
@@ -83,7 +95,7 @@ An original composite metric measuring recent performance quality.
 |-----------|--------|-------------|
 | Recent Performance | 35% | Average runs in last 10 innings |
 | Consistency | 20% | 1 - coefficient of variation |
-| Opposition Strength | 15% | Weighted average against bowling teams |
+| Opposition Strength | 15% | Opponent bowling economy/wicket strength, weighted by balls faced |
 | Venue Performance | 10% | CV across venues (lower = better) |
 | Match Situation | 10% | Chasing avg / overall avg ratio |
 | Efficiency | 10% | Strike rate × average / 100 |
@@ -128,7 +140,7 @@ Where:
 - Average first/second innings scores
 - Highest/lowest totals
 - Chasing/defending win percentages
-- Pace/spin wicket percentages (currently placeholder: 55%/45%)
+- Pace/spin wicket percentages (null until reliable bowling-style data is available)
 - Phase-wise scoring averages
 - Boundary frequency
 - Toss impact percentages

@@ -171,7 +171,7 @@ No franchise teams accidentally created for international sides.
 
 | Table | Count |
 |---|---|
-| matches | 8,255 |
+| matches | 8,250 |
 | innings | 18,046 |
 | deliveries | 4,130,065 |
 | players | 5,734 |

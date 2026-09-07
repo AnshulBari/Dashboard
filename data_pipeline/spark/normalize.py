@@ -112,6 +112,8 @@ WICKET_TYPES = {
     "retired hurt": "retired_hurt",
     "retired out": "retired_out",
     "obstructing the field": "obstructing_field",
+    "hit the ball twice": "hit_the_ball_twice",
+    "handled the ball": "handled_the_ball",
     "timed out": "timed_out",
 }
 
@@ -319,7 +321,9 @@ def normalize_deliveries(df: DataFrame) -> DataFrame:
     
     # Normalize format
     result = result.withColumn(
-        "canonical_format", normalize_fmt(F.col("format"))
+        "format", normalize_fmt(F.col("format"))
+    ).withColumn(
+        "canonical_format", F.col("format")
     )
     
     # Classify phase (format-aware)
@@ -331,7 +335,7 @@ def normalize_deliveries(df: DataFrame) -> DataFrame:
     # Determine if batting team is chasing (second innings)
     result = result.withColumn(
         "is_chasing",
-        F.when(F.col("innings_idx") == 1, F.lit(False)).otherwise(F.lit(True))
+        F.when(F.col("innings_idx") == 1, F.lit(True)).otherwise(F.lit(False))
     )
     
     return result

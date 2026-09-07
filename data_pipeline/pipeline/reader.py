@@ -21,6 +21,16 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+def normalize_result_type(outcome: dict) -> str:
+    """Map a Cricsheet outcome to the database's canonical result values."""
+    if outcome.get("winner"):
+        return "win"
+
+    value = str(outcome.get("result", "no result")).strip().lower()
+    normalized = value.replace("-", "_").replace(" ", "_")
+    return normalized if normalized in {"tie", "draw", "no_result", "abandoned"} else "no_result"
+
+
 def read_match_file(json_path: str | Path) -> dict:
     """Read a single Cricsheet match JSON file."""
     with open(json_path, "r", encoding="utf-8") as f:
@@ -59,17 +69,9 @@ def flatten_match(data: dict, filename: str = "") -> list[dict]:
     match_dates = info.get("dates", [])
     day_count = len(match_dates) if match_dates else 0
     
-    # Outcome details for Test matches
-    result_type = "win"  # default
-    if not winner or winner == "":
-        if outcome.get("draw"):
-            result_type = "draw"
-        elif outcome.get("no_result"):
-            result_type = "no_result"
-        elif outcome.get("tie"):
-            result_type = "tie"
-        else:
-            result_type = "no_result"
+    # Cricsheet stores non-win results in outcome.result (for example
+    # "no result", "tie", or "draw"). Normalize them for the DB/API.
+    result_type = normalize_result_type(outcome)
     
     # Registry for player ID mapping
     registry = info.get("registry", {}).get("people", {})
@@ -109,8 +111,14 @@ def flatten_match(data: dict, filename: str = "") -> list[dict]:
                 runs_batter = runs_data.get("batter", 0)
                 runs_extras = runs_data.get("extras", 0)
                 runs_total = runs_data.get("total", 0)
+                non_boundary = bool(runs_data.get("non_boundary", False))
                 
                 extras = delivery.get("extras", {})
+                extras_wides = int(extras.get("wides", 0) or 0)
+                extras_noballs = int(extras.get("noballs", 0) or 0)
+                extras_byes = int(extras.get("byes", 0) or 0)
+                extras_legbyes = int(extras.get("legbyes", 0) or 0)
+                extras_penalty = int(extras.get("penalty", 0) or 0)
                 extra_type = None
                 if extras:
                     if "wides" in extras:
@@ -169,7 +177,13 @@ def flatten_match(data: dict, filename: str = "") -> list[dict]:
                     "runs_batter": runs_batter,
                     "runs_extras": runs_extras,
                     "runs_total": runs_total,
+                    "non_boundary": non_boundary,
                     "extra_type": extra_type,
+                    "extras_wides": extras_wides,
+                    "extras_noballs": extras_noballs,
+                    "extras_byes": extras_byes,
+                    "extras_legbyes": extras_legbyes,
+                    "extras_penalty": extras_penalty,
                     "is_wicket": is_wicket,
                     "wicket_type": wicket_type,
                     "dismissed_player": dismissed_player,
@@ -280,6 +294,7 @@ def get_match_info(data_dir: str | Path, match_limit: Optional[int] = None) -> p
                 "toss_winner": info.get("toss", {}).get("winner", ""),
                 "toss_decision": info.get("toss", {}).get("decision", ""),
                 "winner": outcome.get("winner", ""),
+                "result_type": normalize_result_type(outcome),
                 "event_name": event.get("name", "") if isinstance(event, dict) else "",
                 "competition": info.get("competition", ""),
             })

@@ -20,19 +20,22 @@ from dotenv import load_dotenv
 import os
 import logging
 
+# Environment configuration must be loaded before importing database-backed
+# routes; those modules construct their engines at import time.
+load_dotenv()
+
 from backend.routes import players, teams, venues, matches, matchups, rankings, news, live, competitions, analytics, dashboard
 from backend.utils.database import init_db, close_db, engine
 
 logger = logging.getLogger(__name__)
 
-load_dotenv()
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle — startup and shutdown."""
-    # Startup
-    init_db()
+    # Local SQLite is self-bootstrapping. Production PostgreSQL schema changes
+    # remain an explicit deployment/migration responsibility.
+    if engine.dialect.name == "sqlite":
+        init_db()
     yield
     # Shutdown
     close_db()

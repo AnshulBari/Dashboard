@@ -35,7 +35,7 @@ The platform ingests **ball-by-ball cricket data** from [Cricsheet](https://cric
 
 | Metric | Value |
 |--------|-------|
-| Matches | 8,255 (1,243 IPL + 3,533 T20I + 2,577 ODI + 897 Test) |
+| Matches | 8,250 (1,243 IPL + 3,533 T20I + 2,577 ODI + 897 Test) |
 | Deliveries | 4,130,065 |
 | Players | 5,734 (discovered from match data) |
 | Teams | 127 (14 IPL franchises + 110 national + 3 composite) |
@@ -731,7 +731,7 @@ Form Score = 0.35 × Recent_Performance
 |-----------|--------|-------------|
 | **Recent Performance** | 35% | Average runs in last 10 innings, min-max normalized across all players in format |
 | **Consistency** | 20% | 1 − (coefficient of variation), normalized. Lower variance = higher score |
-| **Opposition Strength** | 15% | Weighted average performance against all opponents, weighted by balls faced |
+| **Opposition Strength** | 15% | Opponent bowling economy/wicket strength, weighted by balls faced |
 | **Venue Performance** | 10% | 1 − (CV of averages across venues). Players who perform well everywhere score higher |
 | **Match Situation** | 10% | Ratio of chasing average to overall average. Chasing under pressure = higher score |
 | **Efficiency** | 10% | Strike rate × average / 100. Combines speed and reliability of run-scoring |
@@ -1023,7 +1023,7 @@ Successfully ingested 2,577 historical men's ODI matches (1,477,207 deliveries) 
 
 ### Phase 5.5: Historical Test Dataset Ingestion ✅
 
-Successfully ingested 897 historical men's Test matches (1,518,699 deliveries) through controlled batches of 250 matches. Fixed innings victory classification (168 matches corrected from 'runs' to 'innings' win_type). Recomputed full Test analytics (1,069 batting, 791 bowling) using batched INSERT...SELECT. Full audit: 78 checks, 0 failures. All 278+ tests passing. IPL/T20I/ODI regression preserved. Platform now supports 8,255 matches and 4.13M deliveries across all formats.
+Successfully ingested 897 historical men's Test matches (1,518,699 deliveries) through controlled batches of 250 matches. Fixed innings victory classification (168 matches corrected from 'runs' to 'innings' win_type). Recomputed full Test analytics (1,069 batting, 791 bowling) using batched INSERT...SELECT. Full audit: 78 checks, 0 failures. All 278+ tests passing. IPL/T20I/ODI regression preserved. Platform now supports 8,250 matches and 4.13M deliveries across all formats.
 
 ### Phase 5.6A: Production Data Layer Optimization ✅
 

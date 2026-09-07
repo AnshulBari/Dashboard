@@ -11,6 +11,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from backend.utils.database import get_db
+from backend.utils.validation import (
+    TEAM_SORT_COLUMNS,
+    validate_format,
+    validate_sort_column,
+    validate_sort_order,
+    validate_uuid,
+)
 
 router = APIRouter()
 
@@ -25,11 +32,19 @@ def _row_to_dict(row) -> dict:
 async def list_teams(
     format: Optional[str] = Query(None),
     sort_by: str = Query("overall_strength", description="Sort field"),
+    sort_order: str = Query("desc", description="Sort order (asc/desc)"),
     limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
     """List all teams with strength ratings."""
-    target_format = format or "T20"
+    target_format = validate_format(format or "T20")
+    sort_column = validate_sort_column(sort_by, TEAM_SORT_COLUMNS, "overall_strength")
+    order = validate_sort_order(sort_order)
+
+    total = db.execute(
+        text("SELECT COUNT(*) FROM teams WHERE is_active = true")
+    ).scalar() or 0
 
     rows = db.execute(
         text("""
@@ -42,10 +57,10 @@ async def list_teams(
             FROM teams t
             LEFT JOIN team_performance tp ON t.id = tp.team_id AND tp.format = :fmt AND tp.period = 'career'
             WHERE t.is_active = true
-            ORDER BY tp.overall_strength_score DESC NULLS LAST
-            LIMIT :limit
-        """),
-        {"fmt": target_format, "limit": limit}
+            ORDER BY {sort_column} {order} NULLS LAST
+            LIMIT :limit OFFSET :offset
+        """.format(sort_column=sort_column, order=order)),
+        {"fmt": target_format, "limit": limit, "offset": offset}
     ).fetchall()
 
     teams = []
@@ -54,13 +69,14 @@ async def list_teams(
         d["id"] = str(d["id"])
         teams.append(d)
 
-    return {"teams": teams, "total": len(teams)}
+    return {"teams": teams, "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/{team_id}")
 async def get_team(team_id: str, format: Optional[str] = Query(None), db: Session = Depends(get_db)):
     """Get detailed team information and analytics."""
-    target_format = format or "T20"
+    validate_uuid(team_id, "team_id")
+    target_format = validate_format(format or "T20")
     row = db.execute(
         text("""
             SELECT
@@ -90,7 +106,8 @@ async def get_team_analytics(
     db: Session = Depends(get_db),
 ):
     """Get comprehensive team analytics."""
-    target_format = format or "T20"
+    validate_uuid(team_id, "team_id")
+    target_format = validate_format(format or "T20")
     target_period = period or "career"
 
     row = db.execute(

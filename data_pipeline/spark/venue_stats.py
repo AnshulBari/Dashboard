@@ -15,6 +15,8 @@ Computes per-venue analytics:
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
+from data_pipeline.spark.transform import _ball_faced, _bowler_wicket
+
 
 def compute_venue_match_stats(
     matches_df: DataFrame,
@@ -102,7 +104,7 @@ def compute_venue_phase_stats(
     ).agg(
         F.count("*").alias("total_balls"),
         F.sum("runs_batter").alias("total_runs"),
-        F.sum(F.when(F.col("runs_batter") >= 4, 1).otherwise(0)).alias("boundaries"),
+        F.sum(F.when(F.col("runs_batter").isin(4, 6) & ~F.col("non_boundary"), 1).otherwise(0)).alias("boundaries"),
         F.countDistinct("match_id").alias("matches"),
     )
     
@@ -127,9 +129,7 @@ def compute_venue_wicket_stats(
     """
     # For now, return placeholder stats
     # Full implementation requires joining with player bowling styles
-    venue_wickets = deliveries_df.filter(
-        F.col("is_wicket") & (~F.col("wicket_kind").isin("run_out", "retired_hurt"))
-    ).groupBy(
+    venue_wickets = deliveries_df.filter(_bowler_wicket()).groupBy(
         "venue", "format"
     ).agg(
         F.count("*").alias("total_wickets"),
@@ -148,9 +148,9 @@ def compute_venue_boundary_stats(
     venue_boundaries = deliveries_df.groupBy(
         "venue", "format"
     ).agg(
-        F.count("*").alias("total_balls"),
-        F.sum(F.when(F.col("runs_batter") == 4, 1).otherwise(0)).alias("fours"),
-        F.sum(F.when(F.col("runs_batter") == 6, 1).otherwise(0)).alias("sixes"),
+        F.sum(F.when(_ball_faced(), 1).otherwise(0)).alias("total_balls"),
+        F.sum(F.when((F.col("runs_batter") == 4) & ~F.col("non_boundary"), 1).otherwise(0)).alias("fours"),
+        F.sum(F.when((F.col("runs_batter") == 6) & ~F.col("non_boundary"), 1).otherwise(0)).alias("sixes"),
         F.countDistinct("match_id").alias("matches"),
     )
     
@@ -256,7 +256,7 @@ def compute_comprehensive_venue_stats(
     phase_stats = phase_df.groupBy(
         "venue", "format", "phase"
     ).agg(
-        F.sum("runs_batter").alias("phase_runs"),
+        F.sum("runs_total").alias("phase_runs"),
         F.countDistinct("match_id").alias("matches"),
     )
     

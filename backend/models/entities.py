@@ -14,14 +14,24 @@ Updated for Phase 1: Universal Cricket Data Model
 """
 
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from sqlalchemy import (
     Column, String, Integer, Float, Boolean, Date, DateTime,
-    ForeignKey, Text, JSON, UniqueConstraint, Index
+    ForeignKey, Text, JSON, UniqueConstraint, Index, Uuid as UUID
 )
-from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import relationship
 from backend.utils.database import Base
+
+
+# JSON is portable for local SQLite development; PostgreSQL retains its native
+# text-array representation used by the production schema.
+ALIAS_ARRAY = JSON().with_variant(ARRAY(Text), "postgresql")
+
+
+def utc_now() -> datetime:
+    """Return naive UTC for the schema's timezone-naive timestamp columns."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class Team(Base):
@@ -33,10 +43,10 @@ class Team(Base):
     country = Column(String(100))
     team_type = Column(String(50), default="national")  # 'national', 'franchise', 'composite'
     icc_id = Column(String(50))
-    aliases = Column(ARRAY(Text))
+    aliases = Column(ALIAS_ARRAY)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 
 class Player(Base):
@@ -54,10 +64,10 @@ class Player(Base):
     bowling_type = Column(String(30))
     icc_id = Column(String(50))
     cricsheet_id = Column(String(50))
-    aliases = Column(ARRAY(Text))
+    aliases = Column(ALIAS_ARRAY)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
     affiliations = relationship("PlayerTeamAffiliation", back_populates="player")
@@ -71,9 +81,9 @@ class Venue(Base):
     city = Column(String(100))
     country = Column(String(100))
     capacity = Column(Integer)
-    aliases = Column(ARRAY(Text))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    aliases = Column(ALIAS_ARRAY)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 
 class Competition(Base):
@@ -86,9 +96,9 @@ class Competition(Base):
     competition_type = Column(String(50), default="league")  # 'league', 'tournament', 'bilateral', 'test_series'
     governing_body = Column(String(100))
     season = Column(String(20))
-    aliases = Column(ARRAY(Text))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    aliases = Column(ALIAS_ARRAY)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 
 class Season(Base):
@@ -100,9 +110,9 @@ class Season(Base):
     name = Column(String(50), nullable=False)  # '2024', '2023-24', '2023'
     start_date = Column(Date)
     end_date = Column(Date)
-    aliases = Column(ARRAY(Text))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    aliases = Column(ALIAS_ARRAY)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     
     __table_args__ = (
         UniqueConstraint("competition_id", "name"),
@@ -122,7 +132,7 @@ class FormatConfig(Base):
     is_multi_day = Column(Boolean, default=False)
     is_first_class = Column(Boolean, default=False)
     description = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
 
 class Match(Base):
@@ -156,8 +166,8 @@ class Match(Base):
     event_match_number = Column(Integer)  # Match number within event/series
 
     is_live = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 
 class Innings(Base):
@@ -185,7 +195,7 @@ class Innings(Base):
     all_out = Column(Boolean, default=False)
     follow_on = Column(Boolean, default=False)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
     __table_args__ = (
         UniqueConstraint("match_id", "innings_number"),
@@ -228,8 +238,9 @@ class PlayerBattingStats(Base):
     chasing_strike_rate = Column(Float)
     first_innings_runs = Column(Integer, default=0)
     first_innings_strike_rate = Column(Float)
+    consistency_score = Column(Float)
     
-    calculated_at = Column(DateTime, default=datetime.utcnow)
+    calculated_at = Column(DateTime, default=utc_now)
     
     __table_args__ = (
         UniqueConstraint("player_id", "format", "period"),
@@ -274,7 +285,7 @@ class PlayerBowlingStats(Base):
     death_wickets = Column(Integer, default=0)
     death_economy = Column(Float)
     
-    calculated_at = Column(DateTime, default=datetime.utcnow)
+    calculated_at = Column(DateTime, default=utc_now)
     
     __table_args__ = (
         UniqueConstraint("player_id", "format", "period"),
@@ -299,7 +310,7 @@ class PlayerForm(Base):
     efficiency_component = Column(Float)
     
     recent_innings_count = Column(Integer)
-    last_calculated_at = Column(DateTime, default=datetime.utcnow)
+    last_calculated_at = Column(DateTime, default=utc_now)
     
     __table_args__ = (
         UniqueConstraint("player_id", "format"),
@@ -327,6 +338,7 @@ class TeamPerformance(Base):
     avg_middle_overs_score = Column(Float)
     avg_death_overs_score = Column(Float)
     avg_total_score = Column(Float)
+    avg_economy = Column(Float)
     
     chasing_win_pct = Column(Float)
     defending_win_pct = Column(Float)
@@ -335,7 +347,7 @@ class TeamPerformance(Base):
     bowling_strength_score = Column(Float)
     overall_strength_score = Column(Float)
     
-    calculated_at = Column(DateTime, default=datetime.utcnow)
+    calculated_at = Column(DateTime, default=utc_now)
     
     __table_args__ = (
         UniqueConstraint("team_id", "format", "period"),
@@ -376,7 +388,7 @@ class VenueStats(Base):
     toss_bat_first_win_pct = Column(Float)
     toss_field_first_win_pct = Column(Float)
     
-    calculated_at = Column(DateTime, default=datetime.utcnow)
+    calculated_at = Column(DateTime, default=utc_now)
     
     __table_args__ = (
         UniqueConstraint("venue_id", "format"),
@@ -401,7 +413,7 @@ class BatterBowlerMatchup(Base):
     boundaries = Column(Integer, default=0)
     sixes = Column(Integer, default=0)
     
-    calculated_at = Column(DateTime, default=datetime.utcnow)
+    calculated_at = Column(DateTime, default=utc_now)
     
     __table_args__ = (
         UniqueConstraint("batter_id", "bowler_id", "format"),
@@ -426,7 +438,7 @@ class MatchBattingSummary(Base):
     dismissal_type = Column(String(50))
     bowler_id = Column(UUID(as_uuid=True), ForeignKey("players.id"))
     fielder_id = Column(UUID(as_uuid=True), ForeignKey("players.id"))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     
     __table_args__ = (
         UniqueConstraint("match_id", "innings_id", "player_id"),
@@ -452,7 +464,7 @@ class MatchBowlingSummary(Base):
     economy = Column(Float)
     wides = Column(Integer, default=0)
     noballs = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     
     __table_args__ = (
         UniqueConstraint("match_id", "innings_id", "player_id"),
@@ -480,7 +492,7 @@ class PlayerTeamAffiliation(Base):
     start_date = Column(Date)
     end_date = Column(Date)
     is_current = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     
     player = relationship("Player", back_populates="affiliations")
     
@@ -506,7 +518,7 @@ class PlayerNameMapping(Base):
     source_id = Column(String(100))
     name_variant = Column(String(300), nullable=False)
     confidence = Column(Float, default=1.0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     
     __table_args__ = (
         UniqueConstraint("source", "name_variant"),
@@ -519,12 +531,12 @@ class NewsArticle(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(String(500), nullable=False)
     source = Column(String(100))
-    url = Column(String(1000), nullable=False)
+    url = Column(String(1000), nullable=False, unique=True)
     publication_date = Column(DateTime)
     description = Column(Text)
     category = Column(String(50))
     image_url = Column(String(1000))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     
     __table_args__ = (
         Index("idx_news_date", "publication_date"),

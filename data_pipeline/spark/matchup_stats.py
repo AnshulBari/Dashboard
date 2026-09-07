@@ -11,6 +11,8 @@ Computes batter vs bowler matchup data including:
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
+from data_pipeline.spark.transform import _ball_faced, _bowler_wicket
+
 
 def compute_direct_matchups(deliveries_df: DataFrame) -> DataFrame:
     """
@@ -21,12 +23,14 @@ def compute_direct_matchups(deliveries_df: DataFrame) -> DataFrame:
     matchups = deliveries_df.groupBy(
         "batter", "bowler", "format"
     ).agg(
-        F.count("*").alias("total_balls"),
+        F.sum(F.when(_ball_faced(), 1).otherwise(0)).alias("total_balls"),
         F.sum("runs_batter").alias("total_runs"),
-        F.sum(F.when(F.col("is_wicket"), 1).otherwise(0)).alias("total_wickets"),
-        F.sum(F.when(F.col("runs_batter") == 0, 1).otherwise(0)).alias("dot_balls"),
-        F.sum(F.when(F.col("runs_batter") >= 4, 1).otherwise(0)).alias("boundaries"),
-        F.sum(F.when(F.col("runs_batter") == 6, 1).otherwise(0)).alias("sixes"),
+        F.sum(F.when(
+            _bowler_wicket() & (F.col("wicket_player") == F.col("batter")), 1
+        ).otherwise(0)).alias("total_wickets"),
+        F.sum(F.when(_ball_faced() & (F.col("runs_total") == 0), 1).otherwise(0)).alias("dot_balls"),
+        F.sum(F.when(F.col("runs_batter").isin(4, 6) & ~F.col("non_boundary"), 1).otherwise(0)).alias("boundaries"),
+        F.sum(F.when((F.col("runs_batter") == 6) & ~F.col("non_boundary"), 1).otherwise(0)).alias("sixes"),
         F.countDistinct("match_id").alias("matches"),
     )
     
@@ -84,9 +88,11 @@ def compute_pace_spin_matchups(
     pace_spin = enriched.groupBy(
         "batter", "format", "bowling_type"
     ).agg(
-        F.count("*").alias("total_balls"),
+        F.sum(F.when(_ball_faced(), 1).otherwise(0)).alias("total_balls"),
         F.sum("runs_batter").alias("total_runs"),
-        F.sum(F.when(F.col("is_wicket"), 1).otherwise(0)).alias("wickets"),
+        F.sum(F.when(
+            _bowler_wicket() & (F.col("wicket_player") == F.col("batter")), 1
+        ).otherwise(0)).alias("wickets"),
         F.countDistinct("match_id").alias("matches"),
     ).filter(F.col("bowling_type").isNotNull())
     
@@ -125,9 +131,11 @@ def compute_arm_matchups(
     arm_stats = enriched.groupBy(
         "batter", "format", "bowling_arm"
     ).agg(
-        F.count("*").alias("total_balls"),
+        F.sum(F.when(_ball_faced(), 1).otherwise(0)).alias("total_balls"),
         F.sum("runs_batter").alias("total_runs"),
-        F.sum(F.when(F.col("is_wicket"), 1).otherwise(0)).alias("wickets"),
+        F.sum(F.when(
+            _bowler_wicket() & (F.col("wicket_player") == F.col("batter")), 1
+        ).otherwise(0)).alias("wickets"),
         F.countDistinct("match_id").alias("matches"),
     ).filter(F.col("bowling_arm").isNotNull())
     

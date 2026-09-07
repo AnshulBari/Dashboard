@@ -405,8 +405,10 @@ class LiveService:
                     logger.error(f"Entity mapping failed: {e}")
 
             # Build response
+            match_data = [self._match_to_dict(m) for m in matches]
             result = {
-                "matches": [self._match_to_dict(m) for m in matches],
+                "matches": match_data,
+                "data": match_data,
                 "total": len(matches),
                 "source": matches[0].source if matches else None,
                 "fetched_at": matches[0].fetched_at.isoformat() if matches and matches[0].fetched_at else None,
@@ -430,6 +432,7 @@ class LiveService:
             # Return empty result on first failure
             return {
                 "matches": [],
+                "data": [],
                 "total": 0,
                 "source": None,
                 "fetched_at": None,

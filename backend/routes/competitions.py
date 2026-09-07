@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from backend.utils.database import get_db
+from backend.utils.validation import validate_format, validate_uuid
 
 router = APIRouter()
 
@@ -31,22 +32,23 @@ async def list_competitions(
     params = {"limit": limit}
     where = "WHERE 1=1"
     if format:
+        validate_format(format)
         where += " AND c.format = :fmt"
         params["fmt"] = format
 
-    try:
-        rows = db.execute(
-            text(f"""
-                SELECT c.id, c.name, c.short_name, c.format, c.governing_body, c.season
-                FROM competitions c
-                {where}
-                ORDER BY c.name
-                LIMIT :limit
-            """),
-            params,
-        ).fetchall()
-    except Exception:
-        return {"competitions": [], "total": 0}
+    rows = db.execute(
+        text(f"""
+            SELECT c.id, c.name, c.short_name, c.format, c.governing_body, c.season
+            FROM competitions c
+            {where}
+            ORDER BY c.name
+            LIMIT :limit
+        """),
+        params,
+    ).fetchall()
+    total = db.execute(
+        text(f"SELECT COUNT(*) FROM competitions c {where}"), params
+    ).scalar() or 0
 
     competitions = []
     for row in rows:
@@ -54,12 +56,13 @@ async def list_competitions(
         d["id"] = str(d["id"])
         competitions.append(d)
 
-    return {"competitions": competitions, "total": len(competitions)}
+    return {"competitions": competitions, "total": total}
 
 
 @router.get("/{competition_id}")
 async def get_competition(competition_id: str, db: Session = Depends(get_db)):
     """Get detailed competition information."""
+    validate_uuid(competition_id, "competition_id")
     row = db.execute(
         text("""
             SELECT id, name, short_name, format, governing_body, season
@@ -76,29 +79,25 @@ async def get_competition(competition_id: str, db: Session = Depends(get_db)):
     d["id"] = str(d["id"])
     d["seasons"] = []
 
-    # Try to get seasons if table exists
-    try:
-        seasons = db.execute(
-            text("""
-                SELECT id, name, start_date, end_date
-                FROM seasons
-                WHERE competition_id = :cid
-                ORDER BY name DESC
-            """),
-            {"cid": competition_id},
-        ).fetchall()
+    seasons = db.execute(
+        text("""
+            SELECT id, name, start_date, end_date
+            FROM seasons
+            WHERE competition_id = :cid
+            ORDER BY name DESC
+        """),
+        {"cid": competition_id},
+    ).fetchall()
 
-        d["seasons"] = [
-            {
-                "id": str(s.id),
-                "name": s.name,
-                "start_date": str(s.start_date) if s.start_date else None,
-                "end_date": str(s.end_date) if s.end_date else None,
-            }
-            for s in seasons
-        ]
-    except Exception:
-        pass
+    d["seasons"] = [
+        {
+            "id": str(s.id),
+            "name": s.name,
+            "start_date": str(s.start_date) if s.start_date else None,
+            "end_date": str(s.end_date) if s.end_date else None,
+        }
+        for s in seasons
+    ]
 
     return d
 
@@ -106,23 +105,27 @@ async def get_competition(competition_id: str, db: Session = Depends(get_db)):
 @router.get("/{competition_id}/seasons")
 async def list_seasons(competition_id: str, db: Session = Depends(get_db)):
     """List seasons for a competition."""
-    try:
-        rows = db.execute(
-            text("""
-                SELECT id, name, start_date, end_date
-                FROM seasons
-                WHERE competition_id = :cid
-                ORDER BY name DESC
-            """),
-            {"cid": competition_id},
-        ).fetchall()
+    validate_uuid(competition_id, "competition_id")
+    exists = db.execute(
+        text("SELECT 1 FROM competitions WHERE id = :cid"), {"cid": competition_id}
+    ).fetchone()
+    if not exists:
+        raise HTTPException(status_code=404, detail="Competition not found")
 
-        seasons = []
-        for row in rows:
-            d = _row_to_dict(row)
-            d["id"] = str(d["id"])
-            seasons.append(d)
+    rows = db.execute(
+        text("""
+            SELECT id, name, start_date, end_date
+            FROM seasons
+            WHERE competition_id = :cid
+            ORDER BY name DESC
+        """),
+        {"cid": competition_id},
+    ).fetchall()
 
-        return {"seasons": seasons, "total": len(seasons)}
-    except Exception:
-        return {"seasons": [], "total": 0}
+    seasons = []
+    for row in rows:
+        d = _row_to_dict(row)
+        d["id"] = str(d["id"])
+        seasons.append(d)
+
+    return {"seasons": seasons, "total": len(seasons)}

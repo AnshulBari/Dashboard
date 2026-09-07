@@ -16,6 +16,64 @@ from pyspark.sql import functions as F
 from pyspark.sql import Window
 
 
+NON_BOWLER_DISMISSALS = [
+    "run out", "retired hurt", "retired out", "retired not out",
+    "obstructing the field", "hit the ball twice", "handled the ball", "timed out",
+]
+
+
+def _extra_type():
+    return F.coalesce(F.col("extra_type"), F.lit(""))
+
+
+def _ball_faced():
+    return _extra_type() != "wide"
+
+
+def _legal_ball():
+    return ~_extra_type().isin("wide", "noball", "no ball")
+
+
+def _bowler_runs():
+    return (
+        F.coalesce(F.col("runs_batter"), F.lit(0))
+        + F.coalesce(F.col("extras_wides"), F.lit(0))
+        + F.coalesce(F.col("extras_noballs"), F.lit(0))
+    )
+
+
+def _bowler_wicket():
+    kind = F.lower(F.regexp_replace(F.coalesce(F.col("wicket_kind"), F.lit("")), "_", " "))
+    return F.col("is_wicket") & ~kind.isin(*NON_BOWLER_DISMISSALS)
+
+
+def _batter_out():
+    kind = F.lower(F.regexp_replace(F.coalesce(F.col("wicket_kind"), F.lit("")), "_", " "))
+    return (
+        F.col("is_wicket")
+        & (F.col("wicket_player") == F.col("batter"))
+        & ~kind.isin("retired hurt", "retired not out")
+    )
+
+
+def _phase():
+    """Format-aware phase expression using zero-indexed over numbers."""
+    return (
+        F.when(F.col("format") == "Test", F.lit("general"))
+        .when(
+            F.col("format") == "ODI",
+            F.when(F.col("over_number") <= 9, F.lit("powerplay"))
+            .when(F.col("over_number") <= 39, F.lit("middle"))
+            .otherwise(F.lit("death")),
+        )
+        .otherwise(
+            F.when(F.col("over_number") <= 5, F.lit("powerplay"))
+            .when(F.col("over_number") <= 14, F.lit("middle"))
+            .otherwise(F.lit("death"))
+        )
+    )
+
+
 def add_cumulative_stats(df: DataFrame) -> DataFrame:
     """
     Add cumulative runs and wickets per innings.
@@ -149,17 +207,9 @@ def add_phase_stats(df: DataFrame) -> DataFrame:
     """
     Compute per-phase aggregates for innings.
     
-    Phases:
-    - Powerplay: overs 1-6
-    - Middle: overs 7-15
-    - Death: overs 16-20
+    Uses format-aware, zero-indexed phase boundaries for T20, ODI and Test.
     """
-    phase_df = df.withColumn(
-        "phase",
-        F.when(F.col("over_number") <= 6, F.lit("powerplay"))
-        .when(F.col("over_number") <= 15, F.lit("middle"))
-        .otherwise(F.lit("death"))
-    )
+    phase_df = df.withColumn("phase", _phase())
     
     phase_stats = phase_df.groupBy(
         "match_id", "innings_id", "batting_team", "phase"
@@ -168,8 +218,8 @@ def add_phase_stats(df: DataFrame) -> DataFrame:
         F.count("*").alias("phase_deliveries"),
         F.sum(F.when(F.col("is_wicket"), 1).otherwise(0)).alias("phase_wickets"),
         F.sum("runs_batter").alias("phase_runs_bat"),
-        F.sum(F.when(F.col("runs_batter") >= 4, 1).otherwise(0)).alias("phase_boundaries"),
-        F.sum(F.when(F.col("runs_batter") == 0, 1).otherwise(0)).alias("phase_dots"),
+        F.sum(F.when(F.col("runs_batter").isin(4, 6) & ~F.col("non_boundary"), 1).otherwise(0)).alias("phase_boundaries"),
+        F.sum(F.when(_ball_faced() & (F.col("runs_total") == 0), 1).otherwise(0)).alias("phase_dots"),
     )
     
     return phase_stats
@@ -184,13 +234,13 @@ def compute_player_innings_stats(deliveries_df: DataFrame) -> DataFrame:
     batting_df = deliveries_df.groupBy(
         "match_id", "innings_id", "batter", "batting_team", "bowling_team"
     ).agg(
-        F.count("*").alias("balls_faced"),
+        F.sum(F.when(_ball_faced(), 1).otherwise(0)).alias("balls_faced"),
         F.sum("runs_batter").alias("runs"),
         F.sum("runs_total").alias("total_runs_with_extras"),
-        F.sum(F.when(F.col("is_wicket") & (F.col("wicket_player") == F.col("batter")), 1).otherwise(0)).alias("is_out"),
-        F.sum(F.when(F.col("runs_batter") == 0, 1).otherwise(0)).alias("dot_balls"),
-        F.sum(F.when(F.col("runs_batter") == 4, 1).otherwise(0)).alias("fours"),
-        F.sum(F.when(F.col("runs_batter") == 6, 1).otherwise(0)).alias("sixes"),
+        F.sum(F.when(_batter_out(), 1).otherwise(0)).alias("is_out"),
+        F.sum(F.when(_ball_faced() & (F.col("runs_total") == 0), 1).otherwise(0)).alias("dot_balls"),
+        F.sum(F.when((F.col("runs_batter") == 4) & ~F.col("non_boundary"), 1).otherwise(0)).alias("fours"),
+        F.sum(F.when((F.col("runs_batter") == 6) & ~F.col("non_boundary"), 1).otherwise(0)).alias("sixes"),
         F.first("format").alias("format"),
         F.first("innings_idx").alias("innings_number"),
     )
@@ -209,7 +259,7 @@ def compute_player_innings_stats(deliveries_df: DataFrame) -> DataFrame:
     ).withColumn(
         "boundary_pct",
         F.when(F.col("balls_faced") > 0,
-               F.round(F.col("fours") + F.col("sixes") * 100.0 / F.col("balls_faced"), 2)
+               F.round((F.col("fours") + F.col("sixes")) * 100.0 / F.col("balls_faced"), 2)
         ).otherwise(F.lit(0))
     ).withColumn(
         "dot_ball_pct",
@@ -225,21 +275,18 @@ def compute_bowler_innings_stats(deliveries_df: DataFrame) -> DataFrame:
     """
     Compute per-bowler per-innings bowling statistics.
     
-    Handles extras carefully — wide and no-ball deliveries count
-    as bowling balls but the runs don't count as bowler's runs.
+    Wides and no-balls do not count as legal balls. Byes, leg-byes and
+    penalties are not charged to the bowler.
     """
-    bowling_df = deliveries_df.filter(
-        # Exclude wide-only deliveries from bowling stats
-        ~((F.col("extra_type") == "wide") & (F.col("runs_batter") == 0))
-    ).groupBy(
+    bowling_df = deliveries_df.groupBy(
         "match_id", "innings_id", "bowler", "bowling_team", "batting_team"
     ).agg(
-        F.count("*").alias("balls_bowled"),
-        F.sum("runs_total").alias("runs_conceded"),
+        F.sum(F.when(_legal_ball(), 1).otherwise(0)).alias("balls_bowled"),
+        F.sum(_bowler_runs()).alias("runs_conceded"),
         F.sum("runs_extras").alias("extras_conceded"),
-        F.sum(F.when(F.col("is_wicket"), 1).otherwise(0)).alias("wickets"),
-        F.sum(F.when(F.col("runs_batter") == 0, 1).otherwise(0)).alias("dot_balls"),
-        F.sum(F.when(F.col("runs_batter") >= 4, 1).otherwise(0)).alias("boundaries_conceded"),
+        F.sum(F.when(_bowler_wicket(), 1).otherwise(0)).alias("wickets"),
+        F.sum(F.when(_legal_ball() & (F.col("runs_total") == 0), 1).otherwise(0)).alias("dot_balls"),
+        F.sum(F.when(F.col("runs_batter").isin(4, 6) & ~F.col("non_boundary"), 1).otherwise(0)).alias("boundaries_conceded"),
         F.first("format").alias("format"),
         F.first("innings_idx").alias("innings_number"),
     )
@@ -282,12 +329,14 @@ def compute_matchups(deliveries_df: DataFrame) -> DataFrame:
     matchups = deliveries_df.groupBy(
         "batter", "bowler", "format"
     ).agg(
-        F.count("*").alias("total_balls"),
+        F.sum(F.when(_ball_faced(), 1).otherwise(0)).alias("total_balls"),
         F.sum("runs_batter").alias("total_runs"),
-        F.sum(F.when(F.col("is_wicket"), 1).otherwise(0)).alias("total_wickets"),
-        F.sum(F.when(F.col("runs_batter") == 0, 1).otherwise(0)).alias("dot_balls"),
-        F.sum(F.when(F.col("runs_batter") >= 4, 1).otherwise(0)).alias("boundaries"),
-        F.sum(F.when(F.col("runs_batter") == 6, 1).otherwise(0)).alias("sixes"),
+        F.sum(F.when(
+            _bowler_wicket() & (F.col("wicket_player") == F.col("batter")), 1
+        ).otherwise(0)).alias("total_wickets"),
+        F.sum(F.when(_ball_faced() & (F.col("runs_total") == 0), 1).otherwise(0)).alias("dot_balls"),
+        F.sum(F.when(F.col("runs_batter").isin(4, 6) & ~F.col("non_boundary"), 1).otherwise(0)).alias("boundaries"),
+        F.sum(F.when((F.col("runs_batter") == 6) & ~F.col("non_boundary"), 1).otherwise(0)).alias("sixes"),
     )
     
     # Only include matchups with minimum 10 balls (statistical significance)

@@ -27,12 +27,12 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 
 import pandas as pd
 
 from data_pipeline.batch.manifest import BatchManifest
-from data_pipeline.pipeline.reader import read_directory
+from data_pipeline.pipeline.reader import normalize_result_type, read_directory
 from data_pipeline.pipeline.db_manager import DatabaseManager
 from data_pipeline.pipeline.analytics import (
     compute_player_batting_stats,
@@ -281,10 +281,7 @@ class BatchRunner:
         event_name = info.get("event", {}).get("name", "")
         match_number = info.get("event", {}).get("match_number", "")
 
-        # Determine result type
-        result_type = "win"
-        if "result" in outcome:
-            result_type = outcome["result"]
+        result_type = normalize_result_type(outcome)
 
         # Determine win margins
         win_by_runs = None
@@ -341,9 +338,15 @@ class BatchRunner:
                     runs_batter = runs.get("batter", 0)
                     runs_extras = runs.get("extras", 0)
                     runs_total = runs.get("total", 0)
+                    non_boundary = bool(runs.get("non_boundary", False))
 
                     # Extras
                     extras = delivery.get("extras", {})
+                    extras_wides = int(extras.get("wides", 0) or 0)
+                    extras_noballs = int(extras.get("noballs", 0) or 0)
+                    extras_byes = int(extras.get("byes", 0) or 0)
+                    extras_legbyes = int(extras.get("legbyes", 0) or 0)
+                    extras_penalty = int(extras.get("penalty", 0) or 0)
                     extra_type = None
                     if extras:
                         if "wides" in extras:
@@ -354,6 +357,8 @@ class BatchRunner:
                             extra_type = "bye"
                         elif "legbyes" in extras:
                             extra_type = "legbye"
+                        elif "penalty" in extras:
+                            extra_type = "penalty"
 
                     # Wickets
                     wickets = delivery.get("wickets", [])
@@ -399,7 +404,13 @@ class BatchRunner:
                             "runs_batter": runs_batter,
                             "runs_extras": runs_extras,
                             "runs_total": runs_total,
+                            "non_boundary": non_boundary,
                             "extra_type": extra_type,
+                            "extras_wides": extras_wides,
+                            "extras_noballs": extras_noballs,
+                            "extras_byes": extras_byes,
+                            "extras_legbyes": extras_legbyes,
+                            "extras_penalty": extras_penalty,
                             "is_wicket": is_wicket,
                             "wicket_type": wicket_type,
                             "dismissed_player": dismissed_player,
@@ -487,15 +498,10 @@ class BatchRunner:
         Returns empty DataFrame if deliveries table does not exist (Phase 5.6a+).
         """
         try:
-            # Check if deliveries table exists
-            with self.db.engine.connect() as conn:
-                exists = conn.execute(text(
-                    "SELECT COUNT(*) FROM information_schema.tables "
-                    "WHERE table_name = 'deliveries' AND table_schema = 'public'"
-                )).scalar()
-                if not exists:
-                    logger.info("  Deliveries table not found — skipping full-format analytics")
-                    return pd.DataFrame()
+            # Check through SQLAlchemy so local SQLite is supported too.
+            if not inspect(self.db.engine).has_table("deliveries"):
+                logger.info("  Deliveries table not found — skipping full-format analytics")
+                return pd.DataFrame()
 
             # First get all match IDs for this format
             match_query = """
@@ -641,7 +647,7 @@ class BatchRunner:
             team_df = self._resolve_team_ids(team_df, "team_name")
             cols = [
                 "team_id", "format", "period",
-                "matches", "wins", "losses", "win_rate",
+                "matches", "wins", "losses", "ties", "no_results", "win_rate",
                 "avg_first_innings_score", "avg_second_innings_score",
                 "avg_powerplay_score", "avg_middle_overs_score",
                 "avg_death_overs_score", "avg_economy",

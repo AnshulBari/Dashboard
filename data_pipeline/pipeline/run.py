@@ -246,7 +246,7 @@ class CricketPipeline:
             team_df = self._resolve_team_ids(team_df, "team_name")
             cols = [
                 "team_id", "format", "period",
-                "matches", "wins", "losses", "win_rate",
+                "matches", "wins", "losses", "ties", "no_results", "win_rate",
                 "avg_first_innings_score", "avg_second_innings_score",
                 "avg_powerplay_score", "avg_middle_overs_score", "avg_death_overs_score",
                 "avg_economy",

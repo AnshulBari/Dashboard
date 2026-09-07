@@ -107,11 +107,18 @@ CREATE TABLE format_config (
 
 -- Seed format configurations
 INSERT INTO format_config (format, standard_overs, powerplay_end, middle_end, max_innings, is_multi_day, is_first_class, description) VALUES
-    ('T20', 20, 6, 15, 2, FALSE, FALSE, 'T20 franchise cricket (IPL, BBL, etc.)'),
-    ('T20I', 20, 6, 15, 2, FALSE, FALSE, 'International T20 cricket'),
-    ('ODI', 50, 10, 40, 2, FALSE, FALSE, 'One Day International cricket'),
+    ('T20', 20, 5, 14, 2, FALSE, FALSE, 'T20 franchise cricket (IPL, BBL, etc.)'),
+    ('T20I', 20, 5, 14, 2, FALSE, FALSE, 'International T20 cricket'),
+    ('ODI', 50, 9, 39, 2, FALSE, FALSE, 'One Day International cricket'),
     ('Test', 90, 0, 0, 4, TRUE, TRUE, 'Test cricket (up to 5 days)')
-ON CONFLICT (format) DO NOTHING;
+ON CONFLICT (format) DO UPDATE SET
+    standard_overs = EXCLUDED.standard_overs,
+    powerplay_end = EXCLUDED.powerplay_end,
+    middle_end = EXCLUDED.middle_end,
+    max_innings = EXCLUDED.max_innings,
+    is_multi_day = EXCLUDED.is_multi_day,
+    is_first_class = EXCLUDED.is_first_class,
+    description = EXCLUDED.description;
 
 -- ============================================================
 -- MATCH DATA
@@ -492,6 +499,7 @@ CREATE TABLE venue_stats (
     chasing_wins INTEGER DEFAULT 0,
     defending_wins INTEGER DEFAULT 0,
     chasing_win_pct DECIMAL(5,2),
+    defending_win_pct DECIMAL(5,2),
 
     -- Wicket distribution
     pace_wickets_pct DECIMAL(5,2),

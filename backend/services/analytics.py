@@ -35,6 +35,13 @@ def _scalar(conn, sql: str, params: dict = None):
     return conn.execute(text(sql), params or {}).scalar()
 
 
+def _year_expression(conn, column: str) -> str:
+    """Return a year expression for the active supported SQL dialect."""
+    if conn.dialect.name == "sqlite":
+        return f"CAST(strftime('%Y', {column}) AS INTEGER)"
+    return f"CAST(EXTRACT(YEAR FROM {column}) AS INTEGER)"
+
+
 # ============================================================
 # PLAYER ANALYTICS
 # ============================================================
@@ -81,14 +88,15 @@ def player_by_year(
 ) -> list[dict]:
     """Get player statistics grouped by year for a format."""
     table = "match_batting_summary" if batting else "match_bowling_summary"
+    year = _year_expression(conn, "m.match_date")
     if batting:
-        agg = """EXTRACT(YEAR FROM m.match_date)::int as year,
+        agg = f"""{year} as year,
                  SUM(mbs.runs) as runs, SUM(mbs.balls) as balls,
                  SUM(mbs.fours) as fours, SUM(mbs.sixes) as sixes,
                  COUNT(DISTINCT mbs.match_id) as matches,
                  COUNT(*) as innings"""
     else:
-        agg = """EXTRACT(YEAR FROM m.match_date)::int as year,
+        agg = f"""{year} as year,
                  SUM(mbs.runs_conceded) as runs_conceded,
                  SUM(mbs.wickets) as wickets,
                  SUM(mbs.balls_bowled) as balls_bowled,
@@ -170,6 +178,7 @@ def player_vs_opponent(
 ) -> list[dict]:
     """Get player statistics vs each opponent team for a format."""
     table = "match_batting_summary" if batting else "match_bowling_summary"
+    opponent_team_column = "i.bowling_team_id" if batting else "i.batting_team_id"
     if batting:
         agg = """opp.canonical_name as opponent,
                  SUM(mbs.runs) as runs, SUM(mbs.balls) as balls,
@@ -189,7 +198,7 @@ def player_vs_opponent(
             JOIN innings i ON mbs.innings_id = i.id
             JOIN matches m ON mbs.match_id = m.id
             JOIN players p ON mbs.player_id = p.id
-            JOIN teams opp ON i.bowling_team_id = opp.id
+            JOIN teams opp ON {opponent_team_column} = opp.id
             WHERE p.id = :pid AND m.format = :fmt
             GROUP BY opp.canonical_name ORDER BY matches DESC""",
         {"pid": player_id, "fmt": fmt},
@@ -262,9 +271,10 @@ def team_by_format(conn, team_id: str) -> list[dict]:
 
 def team_by_year(conn, team_id: str, fmt: str) -> list[dict]:
     """Get team statistics grouped by year for a format."""
+    year = _year_expression(conn, "m.match_date")
     return _query(
         conn,
-        """SELECT EXTRACT(YEAR FROM m.match_date)::int as year,
+        f"""SELECT {year} as year,
                   COUNT(*) as matches,
                   SUM(CASE WHEN m.winner_id = :tid THEN 1 ELSE 0 END) as wins,
                   SUM(CASE WHEN m.result_type = 'draw' THEN 1 ELSE 0 END) as draws,

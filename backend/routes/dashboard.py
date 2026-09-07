@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from backend.utils.database import get_db
+from backend.utils.validation import validate_format
 
 router = APIRouter()
 
@@ -48,7 +49,7 @@ async def dashboard_summary(
     - Latency (1 round trip vs 5)
     - Database connection pressure
     """
-    target_format = format or "T20"
+    target_format = validate_format(format or "T20")
     
     # 1. Entity counts (single efficient query)
     counts = db.execute(
@@ -95,9 +96,11 @@ async def dashboard_summary(
             LEFT JOIN teams tw ON m.winner_id = tw.id
             LEFT JOIN venues v ON m.venue_id = v.id
             LEFT JOIN competitions c ON m.competition_id = c.id
+            WHERE m.format = :fmt
             ORDER BY m.match_date DESC
             LIMIT 8
         """),
+        {"fmt": target_format},
     ).fetchall()
     
     # 4. Top venues by match count (limited to 6)

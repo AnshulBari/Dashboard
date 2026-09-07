@@ -12,7 +12,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 
 logger = logging.getLogger(__name__)
 
@@ -86,12 +86,7 @@ class AuditRunner:
     
     def _table_exists(self, table_name: str) -> bool:
         """Check if a table exists in the database."""
-        with self.engine.connect() as conn:
-            result = conn.execute(text(
-                "SELECT COUNT(*) FROM information_schema.tables "
-                "WHERE table_name = :name AND table_schema = 'public'"
-            ), {"name": table_name})
-            return result.scalar() > 0
+        return inspect(self.engine).has_table(table_name)
     
     def run_all(self) -> AuditReport:
         """Run all audit checks and return the report."""

@@ -30,6 +30,7 @@ DELIVERY_SCHEMA = T.StructType([
         T.StructField("batter", T.IntegerType(), False),
         T.StructField("extras", T.IntegerType(), False),
         T.StructField("total", T.IntegerType(), False),
+        T.StructField("non_boundary", T.BooleanType(), True),
     ]), False),
     T.StructField("extras", T.MapType(T.StringType(), T.IntegerType()), True),
     T.StructField("wickets", T.ArrayType(T.StructType([
@@ -92,7 +93,9 @@ def read_matches_batch(
     dfs = []
     for path in file_paths:
         try:
-            df = spark.read.json(path, multiLine=True)
+            df = spark.read.json(path, multiLine=True).withColumn(
+                "_source_file", F.input_file_name()
+            )
             dfs.append(df)
         except Exception as e:
             # Some files may be malformed — log and skip
@@ -123,6 +126,8 @@ def flatten_match_data(spark: SparkSession, matches_df: DataFrame) -> DataFrame:
     
     # Explode innings array
     innings_df = matches_df.select(
+        F.col("_source_file"),
+        F.col("meta"),
         F.col("info"),
         F.posexplode("innings").alias("innings_idx", "innings_data")
     )
@@ -130,13 +135,18 @@ def flatten_match_data(spark: SparkSession, matches_df: DataFrame) -> DataFrame:
     # Extract info fields
     info_df = innings_df.select(
         # Match metadata from info
-        F.col("info.date").alias("match_date"),
-        F.col("info.match_type").alias("format"),
+        F.regexp_extract(F.col("_source_file"), r"([^/\\]+)\.json$", 1).alias("match_id"),
+        F.element_at(F.col("info.dates"), 1).alias("match_date"),
+        F.coalesce(
+            F.get_json_object(F.to_json(F.col("meta")), "$.prepared_format"),
+            F.col("info.match_type"),
+        ).alias("format"),
         F.col("info.venue").alias("venue"),
         F.col("info.teams").alias("teams"),
         F.col("info.toss.winner").alias("toss_winner"),
         F.col("info.toss.decision").alias("toss_decision"),
         F.col("info.outcome.winner").alias("outcome_winner"),
+        F.get_json_object(F.to_json(F.col("info.outcome")), "$.result").alias("outcome_result"),
         F.col("info.outcome.by").alias("outcome_by"),
         F.col("info.player_of_match").alias("player_of_match"),
         F.col("info.players").alias("players"),
@@ -156,12 +166,12 @@ def flatten_match_data(spark: SparkSession, matches_df: DataFrame) -> DataFrame:
     # Explode deliveries within each over
     deliveries_df = overs_df.select(
         # Match fields
-        "match_date", "format", "venue", "teams",
-        "toss_winner", "toss_decision", "outcome_winner", "outcome_by",
+        "match_id", "match_date", "format", "venue", "teams",
+        "toss_winner", "toss_decision", "outcome_winner", "outcome_result", "outcome_by",
         "player_of_match", "players", "registry",
         "batting_team",
         "innings_idx",
-        "over_data.over".alias("over_number"),
+        F.col("over_data.over").alias("over_number"),
         # Explode deliveries
         F.posexplode("over_data.deliveries").alias("ball_idx", "delivery"),
     )
@@ -169,8 +179,8 @@ def flatten_match_data(spark: SparkSession, matches_df: DataFrame) -> DataFrame:
     # Flatten delivery fields
     flat_df = deliveries_df.select(
         # Match context
-        "match_date", "format", "venue", "teams",
-        "toss_winner", "toss_decision", "outcome_winner", "outcome_by",
+        "match_id", "match_date", "format", "venue", "teams",
+        "toss_winner", "toss_decision", "outcome_winner", "outcome_result", "outcome_by",
         "player_of_match", "players", "registry",
         "batting_team",
         "innings_idx",
@@ -180,10 +190,19 @@ def flatten_match_data(spark: SparkSession, matches_df: DataFrame) -> DataFrame:
         "delivery.batter",
         "delivery.bowler",
         "delivery.non_striker",
-        "delivery.runs.batter".alias("runs_batter"),
-        "delivery.runs.extras".alias("runs_extras"),
-        "delivery.runs.total".alias("runs_total"),
+        F.col("delivery.runs.batter").alias("runs_batter"),
+        F.col("delivery.runs.extras").alias("runs_extras"),
+        F.col("delivery.runs.total").alias("runs_total"),
+        F.coalesce(
+            F.get_json_object(F.to_json(F.col("delivery.runs")), "$.non_boundary").cast("boolean"),
+            F.lit(False),
+        ).alias("non_boundary"),
         "delivery.extras",
+        F.coalesce(F.get_json_object(F.to_json(F.col("delivery.extras")), "$.wides").cast("integer"), F.lit(0)).alias("extras_wides"),
+        F.coalesce(F.get_json_object(F.to_json(F.col("delivery.extras")), "$.noballs").cast("integer"), F.lit(0)).alias("extras_noballs"),
+        F.coalesce(F.get_json_object(F.to_json(F.col("delivery.extras")), "$.byes").cast("integer"), F.lit(0)).alias("extras_byes"),
+        F.coalesce(F.get_json_object(F.to_json(F.col("delivery.extras")), "$.legbyes").cast("integer"), F.lit(0)).alias("extras_legbyes"),
+        F.coalesce(F.get_json_object(F.to_json(F.col("delivery.extras")), "$.penalty").cast("integer"), F.lit(0)).alias("extras_penalty"),
         # Wicket info
         F.when(
             F.col("delivery.wickets").isNotNull() & (F.size("delivery.wickets") > 0),
@@ -207,15 +226,18 @@ def flatten_match_data(spark: SparkSession, matches_df: DataFrame) -> DataFrame:
         "ball_in_over",
         F.col("ball_idx") + 1
     ).withColumn(
+        "innings_id",
+        F.concat_ws("-", F.col("match_id"), (F.col("innings_idx") + 1).cast("string"))
+    ).withColumn(
         "current_over",
         F.col("over_number") + F.col("ball_idx") / 6.0
     ).withColumn(
         "extra_type",
-        F.when(F.col("extras").isNotNull(), F.element_at(F.col("extras"), F.lit("wides"))).isNotNull()
-        .when(F.col("extras").element_at(F.lit("wides")).isNotNull(), F.lit("wide"))
-        .when(F.col("extras").element_at(F.lit("noballs")).isNotNull(), F.lit("noball"))
-        .when(F.col("extras").element_at(F.lit("byes")).isNotNull(), F.lit("bye"))
-        .when(F.col("extras").element_at(F.lit("legbyes")).isNotNull(), F.lit("legbye"))
+        F.when(F.col("extras_wides") > 0, F.lit("wide"))
+        .when(F.col("extras_noballs") > 0, F.lit("noball"))
+        .when(F.col("extras_byes") > 0, F.lit("bye"))
+        .when(F.col("extras_legbyes") > 0, F.lit("legbye"))
+        .when(F.col("extras_penalty") > 0, F.lit("penalty"))
         .otherwise(F.lit(None))
     )
     

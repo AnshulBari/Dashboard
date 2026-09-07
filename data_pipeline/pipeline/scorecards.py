@@ -32,6 +32,21 @@ from sqlalchemy.engine import Engine
 
 logger = logging.getLogger(__name__)
 
+NON_BOWLER_DISMISSALS = {
+    "run out",
+    "retired hurt",
+    "retired out",
+    "retired not out",
+    "obstructing the field",
+    "hit the ball twice",
+    "handled the ball",
+    "timed out",
+}
+
+
+def _wicket_kind(wicket: dict) -> str:
+    return str(wicket.get("kind", "")).replace("_", " ").strip().lower()
+
 
 def compute_scorecard_from_json(data: dict) -> tuple[dict, dict]:
     """
@@ -46,19 +61,25 @@ def compute_scorecard_from_json(data: dict) -> tuple[dict, dict]:
     """
     batting_rows = {}  # key: (innings_idx, player_name) -> stats
     bowling_rows = {}  # key: (innings_idx, bowler_name) -> stats
+    balls_per_over = int(data.get("info", {}).get("balls_per_over", 6) or 6)
 
     for innings_idx, innings in enumerate(data.get("innings", [])):
         for over_data in innings.get("overs", []):
+            over_bowling = {}
             for ball_idx, delivery in enumerate(over_data.get("deliveries", [])):
                 batter = delivery.get("batter", "")
                 bowler = delivery.get("bowler", "")
                 runs = delivery.get("runs", {})
                 batter_runs = runs.get("batter", 0)
-                total_runs = runs.get("total", 0)
+                non_boundary = bool(runs.get("non_boundary", False))
                 extras = delivery.get("extras", {})
-                is_wicket = len(delivery.get("wickets", [])) > 0
-                wicket_info = (
-                    delivery.get("wickets", [{}])[0] if is_wicket else {}
+                wickets = delivery.get("wickets", [])
+                is_wide = "wides" in extras
+                is_noball = "noballs" in extras
+                bowler_runs = (
+                    batter_runs
+                    + int(extras.get("wides", 0) or 0)
+                    + int(extras.get("noballs", 0) or 0)
                 )
 
                 # Batting aggregation
@@ -72,17 +93,35 @@ def compute_scorecard_from_json(data: dict) -> tuple[dict, dict]:
                             "sixes": 0,
                             "is_not_out": True,
                             "dismissal_type": None,
+                            "dismissal_bowler": None,
+                            "fielder": None,
                         }
                     agg = batting_rows[key]
                     agg["runs"] += batter_runs
-                    agg["balls"] += 1
-                    if batter_runs == 4:
+                    if not is_wide:
+                        agg["balls"] += 1
+                    if batter_runs == 4 and not non_boundary:
                         agg["fours"] += 1
-                    if batter_runs == 6:
+                    if batter_runs == 6 and not non_boundary:
                         agg["sixes"] += 1
-                    if is_wicket and wicket_info.get("player_out") == batter:
+                    for wicket_info in wickets:
+                        if wicket_info.get("player_out") != batter:
+                            continue
+                        kind = _wicket_kind(wicket_info)
+                        if kind in {"retired hurt", "retired not out"}:
+                            continue
                         agg["is_not_out"] = False
                         agg["dismissal_type"] = wicket_info.get("kind", "")
+                        if kind not in NON_BOWLER_DISMISSALS:
+                            agg["dismissal_bowler"] = bowler or None
+                        fielders = wicket_info.get("fielders", [])
+                        if fielders:
+                            first_fielder = fielders[0]
+                            agg["fielder"] = (
+                                first_fielder.get("name")
+                                if isinstance(first_fielder, dict)
+                                else str(first_fielder)
+                            )
 
                 # Bowling aggregation
                 if bowler:
@@ -92,23 +131,33 @@ def compute_scorecard_from_json(data: dict) -> tuple[dict, dict]:
                             "balls": 0,
                             "runs": 0,
                             "wickets": 0,
+                            "maidens": 0,
                             "wides": 0,
                             "noballs": 0,
                         }
                     agg = bowling_rows[key]
-                    agg["balls"] += 1
-                    agg["runs"] += total_runs
-                    if is_wicket and wicket_info.get("kind", "") not in (
-                        "run out",
-                        "retired hurt",
-                        "obstructing the field",
-                        "retired out",
-                    ):
-                        agg["wickets"] += 1
-                    if "wides" in extras:
-                        agg["wides"] += 1
-                    if "noballs" in extras:
-                        agg["noballs"] += 1
+                    if not is_wide and not is_noball:
+                        agg["balls"] += 1
+                    agg["runs"] += bowler_runs
+                    agg["wickets"] += sum(
+                        1 for wicket_info in wickets
+                        if _wicket_kind(wicket_info) not in NON_BOWLER_DISMISSALS
+                    )
+                    agg["wides"] += int(extras.get("wides", 0) or 0)
+                    agg["noballs"] += int(extras.get("noballs", 0) or 0)
+
+                    over_state = over_bowling.setdefault(
+                        bowler, {"legal_balls": 0, "bowler_runs": 0}
+                    )
+                    over_state["legal_balls"] += int(not is_wide and not is_noball)
+                    over_state["bowler_runs"] += bowler_runs
+
+            for bowler, over_state in over_bowling.items():
+                if (
+                    over_state["legal_balls"] >= balls_per_over
+                    and over_state["bowler_runs"] == 0
+                ):
+                    bowling_rows[(innings_idx, bowler)]["maidens"] += 1
 
     return batting_rows, bowling_rows
 
@@ -209,6 +258,7 @@ class ScorecardGenerator:
         self._player_ids = {}  # canonical_name -> id
         self._team_ids = {}  # canonical_name -> id
         self._innings_cache = {}  # (match_db_id, innings_number) -> innings_id
+        self._innings_team_cache = {}  # innings_id -> (batting_team_id, bowling_team_id)
         self._match_ext_to_db = {}  # external_id -> db_id
         self._load_caches()
 
@@ -244,16 +294,24 @@ class ScorecardGenerator:
             except Exception:
                 pass
 
-            # Innings (match_db_id, innings_number) -> innings_id
+            # Innings identifiers and participating teams. Keeping all three
+            # values in memory avoids opening nested connections while a
+            # match-level scorecard replacement transaction is active.
             try:
                 rows = conn.execute(
                     text(
-                        "SELECT i.id, m.external_id, i.innings_number "
+                        "SELECT i.id, m.external_id, i.innings_number, "
+                        "i.batting_team_id, i.bowling_team_id "
                         "FROM innings i JOIN matches m ON i.match_id = m.id"
                     )
                 ).fetchall()
                 for r in rows:
-                    self._innings_cache[(r[1], r[2])] = str(r[0])
+                    innings_id = str(r[0])
+                    self._innings_cache[(r[1], r[2])] = innings_id
+                    self._innings_team_cache[innings_id] = (
+                        str(r[3]) if r[3] else None,
+                        str(r[4]) if r[4] else None,
+                    )
             except Exception:
                 pass
 
@@ -280,23 +338,15 @@ class ScorecardGenerator:
         self, innings_id: str
     ) -> Optional[str]:
         """Get batting_team_id for an innings."""
-        with self.engine.connect() as conn:
-            row = conn.execute(
-                text("SELECT batting_team_id FROM innings WHERE id = :id"),
-                {"id": innings_id},
-            ).fetchone()
-            return str(row[0]) if row else None
+        teams = self._innings_team_cache.get(str(innings_id))
+        return teams[0] if teams else None
 
     def _get_bowling_team_id(
         self, innings_id: str
     ) -> Optional[str]:
         """Get bowling_team_id for an innings."""
-        with self.engine.connect() as conn:
-            row = conn.execute(
-                text("SELECT bowling_team_id FROM innings WHERE id = :id"),
-                {"id": innings_id},
-            ).fetchone()
-            return str(row[0]) if row else None
+        teams = self._innings_team_cache.get(str(innings_id))
+        return teams[1] if teams else None
 
     def generate_from_json_data(
         self,
@@ -340,6 +390,9 @@ class ScorecardGenerator:
             return stats
 
         try:
+            # Replacement and insertion share one transaction. A failed insert
+            # therefore rolls back the deletes and preserves the prior valid
+            # scorecard, as promised by the generator contract.
             with self.engine.begin() as conn:
                 # Delete existing scorecard rows for this match first
                 conn.execute(
@@ -357,7 +410,6 @@ class ScorecardGenerator:
                     {"match_id": match_db_id},
                 )
 
-            with self.engine.begin() as conn:
                 # Insert batting summaries (ON CONFLICT for idempotency)
                 bat_inserted = 0
                 for (innings_idx, player_name), row_stats in batting_rows.items():
@@ -385,11 +437,11 @@ class ScorecardGenerator:
                             "INSERT INTO match_batting_summary "
                             "(match_id, innings_id, player_id, batting_team_id, "
                             "runs, balls, fours, sixes, strike_rate, is_not_out, "
-                            "dismissal_type) "
+                            "dismissal_type, bowler_id, fielder_id) "
                             "VALUES "
                             "(:match_id, :innings_id, :player_id, :batting_team_id, "
                             ":runs, :balls, :fours, :sixes, :strike_rate, :is_not_out, "
-                            ":dismissal_type) "
+                            ":dismissal_type, :bowler_id, :fielder_id) "
                             "ON CONFLICT (match_id, innings_id, player_id) DO UPDATE SET "
                             "batting_team_id = EXCLUDED.batting_team_id, "
                             "runs = EXCLUDED.runs, "
@@ -398,7 +450,9 @@ class ScorecardGenerator:
                             "sixes = EXCLUDED.sixes, "
                             "strike_rate = EXCLUDED.strike_rate, "
                             "is_not_out = EXCLUDED.is_not_out, "
-                            "dismissal_type = EXCLUDED.dismissal_type"
+                            "dismissal_type = EXCLUDED.dismissal_type, "
+                            "bowler_id = EXCLUDED.bowler_id, "
+                            "fielder_id = EXCLUDED.fielder_id"
                         ),
                         {
                             "match_id": match_db_id,
@@ -412,6 +466,12 @@ class ScorecardGenerator:
                             "strike_rate": round(sr, 2),
                             "is_not_out": row_stats["is_not_out"],
                             "dismissal_type": row_stats["dismissal_type"],
+                            "bowler_id": self._resolve_player_id(
+                                row_stats.get("dismissal_bowler")
+                            ),
+                            "fielder_id": self._resolve_player_id(
+                                row_stats.get("fielder")
+                            ),
                         },
                     )
                     bat_inserted += 1
@@ -435,7 +495,11 @@ class ScorecardGenerator:
                     overs = row_stats["balls"] // 6 + (
                         row_stats["balls"] % 6
                     ) / 10.0
-                    econ = (row_stats["runs"] / overs) if overs > 0 else 0
+                    econ = (
+                        row_stats["runs"] * 6.0 / row_stats["balls"]
+                        if row_stats["balls"] > 0
+                        else 0
+                    )
 
                     conn.execute(
                         text(
@@ -453,6 +517,7 @@ class ScorecardGenerator:
                             "balls_bowled = EXCLUDED.balls_bowled, "
                             "runs_conceded = EXCLUDED.runs_conceded, "
                             "wickets = EXCLUDED.wickets, "
+                            "maidens = EXCLUDED.maidens, "
                             "economy = EXCLUDED.economy, "
                             "wides = EXCLUDED.wides, "
                             "noballs = EXCLUDED.noballs"
@@ -464,7 +529,7 @@ class ScorecardGenerator:
                             "bowling_team_id": bowling_team_id,
                             "overs": round(overs, 1),
                             "balls_bowled": row_stats["balls"],
-                            "maidens": 0,
+                            "maidens": row_stats["maidens"],
                             "runs_conceded": row_stats["runs"],
                             "wickets": row_stats["wickets"],
                             "economy": round(econ, 2),

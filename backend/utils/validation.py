@@ -17,6 +17,10 @@ PLAYER_SORT_COLUMNS = {
     "runs": "pbs.runs",
     "wickets": "pws.wickets",
     "batting_average": "pbs.batting_average",
+    "strike_rate": "pbs.strike_rate",
+    # Public response names retained as aliases for API clients.
+    "career_runs": "pbs.runs",
+    "career_wickets": "pws.wickets",
 }
 
 TEAM_SORT_COLUMNS = {

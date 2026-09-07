@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from backend.utils.database import get_db
+from backend.utils.validation import validate_format, validate_uuid
 
 router = APIRouter()
 
@@ -33,7 +34,7 @@ async def list_matches(
     db: Session = Depends(get_db),
 ):
     """List matches with filtering options."""
-    target_format = format or "T20"
+    target_format = validate_format(format or "T20")
 
     where_clauses = ["m.format = :fmt"]
     params = {"fmt": target_format, "limit": limit, "offset": offset}
@@ -45,6 +46,21 @@ async def list_matches(
     if season:
         where_clauses.append("s.name = :season")
         params["season"] = season
+
+    if team:
+        where_clauses.append(
+            "(REPLACE(CAST(m.team_a_id AS TEXT), '-', '') = REPLACE(:team, '-', '') "
+            "OR REPLACE(CAST(m.team_b_id AS TEXT), '-', '') = REPLACE(:team, '-', '') "
+            "OR ta.canonical_name = :team OR tb.canonical_name = :team)"
+        )
+        params["team"] = team
+
+    if venue:
+        where_clauses.append(
+            "(REPLACE(CAST(m.venue_id AS TEXT), '-', '') = REPLACE(:venue, '-', '') "
+            "OR v.name = :venue)"
+        )
+        params["venue"] = venue
 
     where_sql = " AND ".join(where_clauses)
 
@@ -89,22 +105,27 @@ async def list_matches(
         elif result_type == "abandoned":
             d["result"] = "Abandoned"
         elif d.get("winner"):
-            margin_str = f" by {d['win_margin']} {d['win_type']}"
+            margin_str = (
+                f" by {d['win_margin']} {d['win_type']}"
+                if d.get("win_margin") is not None and d.get("win_type")
+                else ""
+            )
             d["result"] = f"{d['winner']} won{margin_str}"
         else:
             d["result"] = "No result"
         matches.append(d)
 
     # Count total
-    count_params = {"fmt": target_format}
-    count_where = ["m.format = :fmt"]
-    if competition:
-        count_where.append("c.name = :comp")
-        count_params["comp"] = competition
-    if season:
-        count_where.append("s.name = :season")
-        count_params["season"] = season
-    count_sql = f"SELECT COUNT(*) FROM matches m LEFT JOIN competitions c ON m.competition_id = c.id LEFT JOIN seasons s ON m.season_id = s.id WHERE {' AND '.join(count_where)}"
+    count_sql = f"""
+        SELECT COUNT(*) FROM matches m
+        LEFT JOIN teams ta ON m.team_a_id = ta.id
+        LEFT JOIN teams tb ON m.team_b_id = tb.id
+        LEFT JOIN venues v ON m.venue_id = v.id
+        LEFT JOIN competitions c ON m.competition_id = c.id
+        LEFT JOIN seasons s ON m.season_id = s.id
+        WHERE {where_sql}
+    """
+    count_params = {k: v for k, v in params.items() if k not in {"limit", "offset"}}
     total = db.execute(text(count_sql), count_params).scalar() or 0
 
     return {
@@ -118,11 +139,12 @@ async def list_matches(
 @router.get("/{match_id}")
 async def get_match(match_id: str, db: Session = Depends(get_db)):
     """Get detailed match information."""
+    validate_uuid(match_id, "match_id")
     row = db.execute(
         text("""
             SELECT
                 m.id, m.match_date, m.format, m.win_margin, m.win_type,
-                m.toss_decision,
+                m.toss_decision, m.result_type,
                 ta.canonical_name AS team_a,
                 tb.canonical_name AS team_b,
                 tw.canonical_name AS winner,
@@ -142,8 +164,19 @@ async def get_match(match_id: str, db: Session = Depends(get_db)):
 
     d = _row_to_dict(row)
     d["id"] = str(d["id"])
-    if d.get("winner"):
-        d["result"] = f"{d['winner']} won by {d['win_margin']} {d['win_type']}"
+    if d.get("result_type") == "draw":
+        d["result"] = "Draw"
+    elif d.get("result_type") == "tie":
+        d["result"] = "Tie"
+    elif d.get("result_type") in {"no_result", "abandoned"}:
+        d["result"] = "No result" if d["result_type"] == "no_result" else "Abandoned"
+    elif d.get("winner"):
+        margin = (
+            f" by {d['win_margin']} {d['win_type']}"
+            if d.get("win_margin") is not None and d.get("win_type")
+            else ""
+        )
+        d["result"] = f"{d['winner']} won{margin}"
     else:
         d["result"] = "No result"
 

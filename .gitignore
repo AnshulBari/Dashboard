@@ -10,6 +10,8 @@ env/
 data/raw/*
 data/processed/*
 data/analytics/*
+data/*.db-shm
+data/*.db-wal
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/analytics/.gitkeep

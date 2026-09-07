@@ -28,6 +28,101 @@ from data_pipeline.pipeline.format_config import get_format_rules, FormatRules
 logger = logging.getLogger(__name__)
 
 
+# Deliveries that do not count towards a bowler's wicket tally.  Keep this in
+# one place so career, phase and matchup figures use the same cricket rules.
+NON_BOWLER_DISMISSALS = {
+    "run out",
+    "retired hurt",
+    "retired out",
+    "retired not out",
+    "obstructing the field",
+    "hit the ball twice",
+    "handled the ball",
+    "timed out",
+}
+
+
+def _normalized_values(df: pd.DataFrame, column: str) -> pd.Series:
+    """Return a lower-case, whitespace-normalized string series."""
+    if column not in df.columns:
+        return pd.Series("", index=df.index, dtype="object")
+    return (
+        df[column]
+        .fillna("")
+        .astype(str)
+        .str.replace("_", " ", regex=False)
+        .str.strip()
+        .str.lower()
+    )
+
+
+def _is_ball_faced(df: pd.DataFrame) -> pd.Series:
+    """A batter faces a no-ball, but not a wide."""
+    return _normalized_values(df, "extra_type") != "wide"
+
+
+def _is_legal_ball(df: pd.DataFrame) -> pd.Series:
+    """Wides and no-balls do not count in a bowler's legal-ball total."""
+    return ~_normalized_values(df, "extra_type").isin({"wide", "noball", "no ball"})
+
+
+def _bowler_runs(df: pd.DataFrame) -> pd.Series:
+    """Runs charged to the bowler, excluding byes, leg-byes and penalties."""
+    batter_runs = pd.to_numeric(df["runs_batter"], errors="coerce").fillna(0)
+
+    # New flattened data contains the individual extras and is exact even for
+    # unusual deliveries containing more than one kind of extra.  The fallback
+    # keeps older prepared batches compatible.
+    if "extras_wides" in df.columns or "extras_noballs" in df.columns:
+        wides = pd.to_numeric(
+            df.get("extras_wides", pd.Series(0, index=df.index)), errors="coerce"
+        ).fillna(0)
+        noballs = pd.to_numeric(
+            df.get("extras_noballs", pd.Series(0, index=df.index)), errors="coerce"
+        ).fillna(0)
+        return batter_runs + wides + noballs
+
+    extras = pd.to_numeric(df["runs_extras"], errors="coerce").fillna(0)
+    chargeable = _normalized_values(df, "extra_type").isin({"wide", "noball", "no ball"})
+    return batter_runs + extras.where(chargeable, 0)
+
+
+def _is_bowler_wicket(df: pd.DataFrame) -> pd.Series:
+    """Return wickets credited to the bowler under scorecard conventions."""
+    return df["is_wicket"].fillna(False).astype(bool) & ~_normalized_values(
+        df, "wicket_type"
+    ).isin(NON_BOWLER_DISMISSALS)
+
+
+def _is_batter_dismissal(df: pd.DataFrame) -> pd.Series:
+    """Return dismissals that count as an out in a batter's average."""
+    non_dismissals = {"retired hurt", "retired not out"}
+    return (
+        df["is_wicket"].fillna(False).astype(bool)
+        & (df["dismissed_player"] == df["batter"])
+        & ~_normalized_values(df, "wicket_type").isin(non_dismissals)
+    )
+
+
+def _is_boundary(df: pd.DataFrame, runs: int) -> pd.Series:
+    """Identify actual boundaries, excluding all-run/overthrow non-boundaries."""
+    scored = pd.to_numeric(df["runs_batter"], errors="coerce").fillna(0) == runs
+    if "non_boundary" not in df.columns:
+        return scored
+    return scored & ~df["non_boundary"].fillna(False).astype(bool)
+
+
+def _minmax_by_format(df: pd.DataFrame, column: str, invert: bool = False) -> pd.Series:
+    """Normalize a metric to 0-100 independently inside each format."""
+    grouped = df.groupby("format")[column]
+    minimum = grouped.transform("min")
+    maximum = grouped.transform("max")
+    value_range = maximum - minimum
+    score = ((df[column] - minimum) / value_range.where(value_range != 0)) * 100
+    score = score.fillna(50.0)
+    return (100 - score if invert else score).round(2)
+
+
 def _classify_phase_format_aware(over_number: int, fmt: str) -> str:
     """
     Classify an over into a phase using format-aware rules.
@@ -68,25 +163,30 @@ def compute_player_batting_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     """
     logger.info("Computing player batting statistics...")
     
-    # Filter to valid batting deliveries (exclude wide-only extras)
+    # Retain wide rows for team totals, but mark them as not faced by the
+    # batter.  A no-ball does count as a ball faced in cricket scorecards.
     batting = deliveries_df[deliveries_df["batter"].notna() & (deliveries_df["batter"] != "")].copy()
+    batting["ball_faced"] = _is_ball_faced(batting).astype(int)
+    batting["is_dot_ball"] = (
+        batting["ball_faced"].astype(bool)
+        & (pd.to_numeric(batting["runs_total"], errors="coerce").fillna(0) == 0)
+    ).astype(int)
+    batting["is_four"] = _is_boundary(batting, 4).astype(int)
+    batting["is_six"] = _is_boundary(batting, 6).astype(int)
     
     # Determine if each delivery resulted in the batter being out
-    batting["is_dismissed"] = (
-        batting["is_wicket"] & 
-        (batting["dismissed_player"] == batting["batter"])
-    )
+    batting["is_dismissed"] = _is_batter_dismissal(batting)
     
     # Group by batter and format
     grouped = batting.groupby(["batter", "format"]).agg(
         matches=("match_id", "nunique"),
         innings=("innings_number", "count"),  # Approximate: each delivery row = part of innings
         runs=("runs_batter", "sum"),
-        balls_faced=("ball_in_over", "count"),
+        balls_faced=("ball_faced", "sum"),
         highest_score=("runs_batter", "max"),  # Will be replaced with per-innings max
-        fours=("runs_batter", lambda x: (x == 4).sum()),
-        sixes=("runs_batter", lambda x: (x == 6).sum()),
-        dot_balls=("runs_batter", lambda x: (x == 0).sum()),
+        fours=("is_four", "sum"),
+        sixes=("is_six", "sum"),
+        dot_balls=("is_dot_ball", "sum"),
         not_outs=("is_dismissed", lambda x: (~x).sum() - 1),  # Approximate
     ).reset_index()
     
@@ -149,7 +249,7 @@ def compute_player_batting_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
         
         phase_agg = phase_data.groupby(["batter", "format"]).agg(
             runs=("runs_batter", "sum"),
-            balls=("ball_in_over", "count"),
+            balls=("ball_faced", "sum"),
         ).reset_index()
         
         phase_agg[f"{phase_name}_runs"] = phase_agg["runs"]
@@ -171,7 +271,7 @@ def compute_player_batting_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
         sit_data = batting[batting["innings_number"].isin(innings_filter)]
         sit_agg = sit_data.groupby(["batter", "format"]).agg(
             runs=("runs_batter", "sum"),
-            balls=("ball_in_over", "count"),
+            balls=("ball_faced", "sum"),
         ).reset_index()
         
         sit_agg[f"{situation}_runs"] = sit_agg["runs"]
@@ -237,22 +337,28 @@ def compute_player_bowling_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     
     bowling = deliveries_df[deliveries_df["bowler"].notna() & (deliveries_df["bowler"] != "")].copy()
     
-    # Exclude wide-only extras from ball count
-    valid_balls = bowling[
-        ~((bowling["extra_type"] == "wide") & (bowling["runs_batter"] == 0))
-    ]
-    
-    grouped = valid_balls.groupby(["bowler", "format"]).agg(
+    bowling["legal_ball"] = _is_legal_ball(bowling).astype(int)
+    bowling["bowler_runs"] = _bowler_runs(bowling)
+    bowling["bowler_wicket"] = _is_bowler_wicket(bowling).astype(int)
+    bowling["is_dot_ball"] = (
+        bowling["legal_ball"].astype(bool)
+        & (pd.to_numeric(bowling["runs_total"], errors="coerce").fillna(0) == 0)
+    ).astype(int)
+    bowling["is_boundary"] = (
+        _is_boundary(bowling, 4) | _is_boundary(bowling, 6)
+    ).astype(int)
+
+    grouped = bowling.groupby(["bowler", "format"]).agg(
         matches=("match_id", "nunique"),
-        balls_bowled=("ball_in_over", "count"),
-        runs_conceded=("runs_total", "sum"),
-        wickets=("is_wicket", "sum"),
-        dot_balls=("runs_batter", lambda x: (x == 0).sum()),
-        boundaries_conceded=("runs_batter", lambda x: (x >= 4).sum()),
+        balls_bowled=("legal_ball", "sum"),
+        runs_conceded=("bowler_runs", "sum"),
+        wickets=("bowler_wicket", "sum"),
+        dot_balls=("is_dot_ball", "sum"),
+        boundaries_conceded=("is_boundary", "sum"),
     ).reset_index()
     
     # Calculate innings count
-    bowling_innings = valid_balls.groupby(["bowler", "format", "match_id"]).size().reset_index(name="balls")
+    bowling_innings = bowling.groupby(["bowler", "format", "match_id", "innings_number"]).size().reset_index(name="balls")
     innings_count = bowling_innings.groupby(["bowler", "format"]).size().reset_index(name="innings")
     result = grouped.merge(innings_count, on=["bowler", "format"], how="left")
     
@@ -285,7 +391,7 @@ def compute_player_bowling_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     )
     
     # Phase-specific bowling — format-aware
-    bowling_with_phase = valid_balls.copy()
+    bowling_with_phase = bowling.copy()
     bowling_with_phase["phase"] = bowling_with_phase.apply(
         lambda r: _classify_phase_format_aware(r["over_number"], r["format"]), axis=1
     )
@@ -294,9 +400,9 @@ def compute_player_bowling_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
         phase_data = bowling_with_phase[bowling_with_phase["phase"] == phase_name]
         
         phase_agg = phase_data.groupby(["bowler", "format"]).agg(
-            runs=("runs_total", "sum"),
-            balls=("ball_in_over", "count"),
-            wickets=("is_wicket", "sum"),
+            runs=("bowler_runs", "sum"),
+            balls=("legal_ball", "sum"),
+            wickets=("bowler_wicket", "sum"),
         ).reset_index()
         
         phase_agg[f"{phase_name}_overs"] = np.floor(phase_agg["balls"] / 6) + (phase_agg["balls"] % 6) / 10.0
@@ -351,16 +457,50 @@ def compute_player_form_scores(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     
     MIN_INNINGS = 3
     
-    # Get per-player per-innings batting scores
-    innings_scores = deliveries_df[
-        deliveries_df["batter"].notna() & (deliveries_df["batter"] != "")
+    form_deliveries = deliveries_df.copy()
+    form_deliveries["ball_faced"] = _is_ball_faced(form_deliveries).astype(int)
+
+    # Estimate actual opposition bowling strength from economy and credited
+    # wicket rate, independently per format.
+    form_deliveries["legal_ball"] = _is_legal_ball(form_deliveries).astype(int)
+    form_deliveries["bowler_runs"] = _bowler_runs(form_deliveries)
+    form_deliveries["bowler_wicket"] = _is_bowler_wicket(form_deliveries).astype(int)
+    opposition = form_deliveries.groupby(["bowling_team", "format"]).agg(
+        legal_balls=("legal_ball", "sum"),
+        runs_conceded=("bowler_runs", "sum"),
+        wickets=("bowler_wicket", "sum"),
+    ).reset_index()
+    opposition["economy"] = np.where(
+        opposition["legal_balls"] > 0,
+        opposition["runs_conceded"] * 6.0 / opposition["legal_balls"],
+        np.nan,
+    )
+    opposition["wicket_rate"] = np.where(
+        opposition["legal_balls"] > 0,
+        opposition["wickets"] * 6.0 / opposition["legal_balls"],
+        0.0,
+    )
+    opposition["opposition_strength"] = (
+        _minmax_by_format(opposition, "economy", invert=True)
+        + _minmax_by_format(opposition, "wicket_rate")
+    ) / 2.0
+
+    # Get per-player per-innings batting scores.
+    innings_scores = form_deliveries[
+        form_deliveries["batter"].notna() & (form_deliveries["batter"] != "")
     ].groupby(["batter", "format", "match_id", "innings_number"]).agg(
         innings_runs=("runs_batter", "sum"),
-        balls_faced=("ball_in_over", "count"),
+        balls_faced=("ball_faced", "sum"),
         match_date=("match_date", "first"),
         bowling_team=("bowling_team", "first"),
         venue=("venue", "first"),
     ).reset_index()
+    innings_scores = innings_scores.merge(
+        opposition[["bowling_team", "format", "opposition_strength"]],
+        on=["bowling_team", "format"],
+        how="left",
+    )
+    innings_scores["opposition_strength"] = innings_scores["opposition_strength"].fillna(50.0)
     
     # Sort by date for recency
     innings_scores = innings_scores.sort_values(["batter", "format", "match_date"], ascending=[True, True, False])
@@ -391,14 +531,12 @@ def compute_player_form_scores(deliveries_df: pd.DataFrame) -> pd.DataFrame:
         consistency = max(0, (1 - cv) * 100)
         
         # 3. Opposition strength (weighted by balls faced)
-        opp_strength = player_data.groupby("bowling_team").agg(
-            avg_runs=("innings_runs", "mean"),
-            balls=("balls_faced", "sum"),
-        )
-        if opp_strength["balls"].sum() > 0:
-            opp_weighted = (opp_strength["avg_runs"] * opp_strength["balls"]).sum() / opp_strength["balls"].sum()
+        if player_data["balls_faced"].sum() > 0:
+            opp_weighted = (
+                player_data["opposition_strength"] * player_data["balls_faced"]
+            ).sum() / player_data["balls_faced"].sum()
         else:
-            opp_weighted = 0
+            opp_weighted = player_data["opposition_strength"].mean()
         
         # 4. Venue performance (CV across venues, lower = better)
         venue_perf = player_data.groupby("venue").agg(
@@ -446,13 +584,12 @@ def compute_player_form_scores(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     
     df = pd.DataFrame(results)
     
-    # Min-max normalize each component within format
+    # Min-max normalize each component within format.  Mixing formats in one
+    # pipeline invocation must not let (for example) Test scoring ranges alter
+    # T20 form scores.
     for col in ["recent_performance", "consistency", "opposition_strength",
                 "venue_performance", "match_situation", "efficiency"]:
-        min_val = df[col].min()
-        max_val = df[col].max()
-        range_val = max(max_val - min_val, 0.01)
-        df[f"{col}_normalized"] = np.round((df[col] - min_val) / range_val * 100, 2)
+        df[f"{col}_normalized"] = _minmax_by_format(df, col)
     
     # Compute weighted form score
     df["form_score"] = np.round(
@@ -500,10 +637,17 @@ def compute_team_performance(deliveries_df: pd.DataFrame) -> pd.DataFrame:
         format=("format", "first"),
     ).reset_index()
     
-    # Match winner
+    # Match outcome. A tie, draw or no-result is not a loss for either team.
+    outcome_aggregations = {"winner": ("winner", "first")}
+    if "result_type" in deliveries_df.columns:
+        outcome_aggregations["result_type"] = ("result_type", "first")
     match_winner = deliveries_df.groupby("match_id").agg(
-        winner=("winner", "first"),
+        **outcome_aggregations,
     ).reset_index()
+    if "result_type" not in match_winner.columns:
+        match_winner["result_type"] = np.where(
+            match_winner["winner"].fillna("") != "", "win", "no_result"
+        )
     
     # Per-team aggregate score (sum across all innings in a match)
     team_match_scores = innings_totals.groupby(["match_id", "batting_team"]).agg(
@@ -514,15 +658,26 @@ def compute_team_performance(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     
     team_perf_raw = team_match_scores.merge(match_winner, on="match_id", how="left")
     team_perf_raw["won"] = team_perf_raw["winner"] == team_perf_raw["team"]
+    normalized_result = _normalized_values(team_perf_raw, "result_type")
+    team_perf_raw["lost"] = (
+        (normalized_result == "win")
+        & (team_perf_raw["winner"].fillna("") != "")
+        & ~team_perf_raw["won"]
+    )
+    team_perf_raw["tied"] = normalized_result == "tie"
+    team_perf_raw["no_result"] = normalized_result.isin(
+        {"draw", "no result", "abandoned"}
+    )
     
     # Aggregate by team and format
     team_perf = team_perf_raw.groupby(["team", "format"]).agg(
         matches=("match_id", "nunique"),
         wins=("won", "sum"),
+        losses=("lost", "sum"),
+        ties=("tied", "sum"),
+        no_results=("no_result", "sum"),
         avg_batting_score=("total_score", "mean"),
     ).reset_index()
-    
-    team_perf["losses"] = team_perf["matches"] - team_perf["wins"]
     team_perf["win_rate"] = np.round(team_perf["wins"] * 100.0 / team_perf["matches"].clip(lower=1), 2)
     
     # First/second innings averages (meaningful for limited-overs)
@@ -538,26 +693,41 @@ def compute_team_performance(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     team_perf = team_perf.merge(second_innings_avg, on=["team", "format"], how="left")
     
     # Chasing vs defending (meaningful for limited-overs)
-    second_innings_teams = innings_totals[innings_totals["innings_number"] == 2][["match_id", "batting_team"]].rename(
+    second_innings_teams = innings_totals[
+        (innings_totals["innings_number"] == 2) & (innings_totals["format"] != "Test")
+    ][["match_id", "format", "batting_team"]].rename(
         columns={"batting_team": "chasing_team"}
     )
+    first_innings_teams = innings_totals[
+        (innings_totals["innings_number"] == 1) & (innings_totals["format"] != "Test")
+    ][["match_id", "format", "batting_team"]].rename(columns={"batting_team": "defending_team"})
     match_chasing = match_winner.merge(second_innings_teams, on="match_id", how="left")
+    match_chasing = match_chasing.merge(first_innings_teams, on=["match_id", "format"], how="left")
+    match_chasing = match_chasing[match_chasing["winner"].fillna("") != ""].copy()
     match_chasing["is_chasing_win"] = match_chasing["winner"] == match_chasing["chasing_team"]
-    
-    chasing_wins = match_chasing[match_chasing["is_chasing_win"]].groupby("chasing_team").size().reset_index(name="chasing_wins")
-    chasing_wins = chasing_wins.rename(columns={"chasing_team": "team"})
-    
-    chasing_attempts = second_innings_teams.groupby("chasing_team").size().reset_index(name="chasing_attempts")
-    chasing_attempts = chasing_attempts.rename(columns={"chasing_team": "team"})
-    
-    team_perf = team_perf.merge(chasing_wins, on="team", how="left")
-    team_perf = team_perf.merge(chasing_attempts, on="team", how="left")
-    team_perf["chasing_wins"] = team_perf["chasing_wins"].fillna(0)
-    team_perf["chasing_attempts"] = team_perf["chasing_attempts"].fillna(0)
-    team_perf["chasing_win_pct"] = np.round(
-        team_perf["chasing_wins"] * 100.0 / team_perf["chasing_attempts"].clip(lower=1), 2
+
+    chasing = match_chasing.groupby(["chasing_team", "format"]).agg(
+        chasing_attempts=("match_id", "count"),
+        chasing_wins=("is_chasing_win", "sum"),
+    ).reset_index().rename(columns={"chasing_team": "team"})
+    match_chasing["is_defending_win"] = match_chasing["winner"] == match_chasing["defending_team"]
+    defending = match_chasing.groupby(["defending_team", "format"]).agg(
+        defending_attempts=("match_id", "count"),
+        defending_wins=("is_defending_win", "sum"),
+    ).reset_index().rename(columns={"defending_team": "team"})
+
+    team_perf = team_perf.merge(chasing, on=["team", "format"], how="left")
+    team_perf = team_perf.merge(defending, on=["team", "format"], how="left")
+    team_perf["chasing_win_pct"] = np.where(
+        team_perf["chasing_attempts"].fillna(0) > 0,
+        np.round(team_perf["chasing_wins"] * 100.0 / team_perf["chasing_attempts"], 2),
+        np.nan,
     )
-    team_perf["defending_win_pct"] = np.round(100 - team_perf["chasing_win_pct"], 2)
+    team_perf["defending_win_pct"] = np.where(
+        team_perf["defending_attempts"].fillna(0) > 0,
+        np.round(team_perf["defending_wins"] * 100.0 / team_perf["defending_attempts"], 2),
+        np.nan,
+    )
     
     # Phase stats — format-aware
     phase_data = deliveries_df.copy()
@@ -566,8 +736,7 @@ def compute_team_performance(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     )
     
     batting_phase = phase_data.groupby(["batting_team", "format", "phase"]).agg(
-        runs=("runs_batter", "sum"),
-        balls=("ball_in_over", "count"),
+        runs=("runs_total", "sum"),
         matches=("match_id", "nunique"),
     ).reset_index()
     batting_phase["avg_runs_per_match"] = np.round(batting_phase["runs"] / batting_phase["matches"].clip(lower=1), 2)
@@ -579,9 +748,11 @@ def compute_team_performance(deliveries_df: pd.DataFrame) -> pd.DataFrame:
         team_perf[f"avg_{phase}_score"] = team_perf[f"avg_{phase}_score"].fillna(0)
     
     # Bowling strength
+    phase_data["legal_ball"] = _is_legal_ball(phase_data).astype(int)
+    phase_data["bowler_runs"] = _bowler_runs(phase_data)
     team_bowling = phase_data.groupby(["bowling_team", "format"]).agg(
-        total_balls=("ball_in_over", "count"),
-        runs_conceded=("runs_total", "sum"),
+        total_balls=("legal_ball", "sum"),
+        runs_conceded=("bowler_runs", "sum"),
     ).reset_index()
     team_bowling["avg_economy"] = np.where(
         team_bowling["total_balls"] > 0,
@@ -592,12 +763,12 @@ def compute_team_performance(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     
     # Strength scores
     if len(team_perf) > 0:
-        bat_min, bat_max = team_perf["avg_batting_score"].min(), team_perf["avg_batting_score"].max()
-        econ_min, econ_max = team_perf["avg_economy"].min(), team_perf["avg_economy"].max()
-        bat_range = max(bat_max - bat_min, 1)
-        econ_range = max(econ_max - econ_min, 1)
-        team_perf["batting_strength_score"] = np.round((team_perf["avg_batting_score"] - bat_min) / bat_range * 100, 2)
-        team_perf["bowling_strength_score"] = np.round((econ_max - team_perf["avg_economy"]) / econ_range * 100, 2)
+        team_perf["batting_strength_score"] = _minmax_by_format(
+            team_perf, "avg_batting_score"
+        )
+        team_perf["bowling_strength_score"] = _minmax_by_format(
+            team_perf, "avg_economy", invert=True
+        )
         team_perf["overall_strength_score"] = np.round(
             0.35 * team_perf["batting_strength_score"].clip(0, 100) +
             0.35 * team_perf["bowling_strength_score"].clip(0, 100) +
@@ -664,7 +835,7 @@ def compute_venue_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     )
     
     venue_phase = phase_data.groupby(["venue", "format", "match_id", "phase"]).agg(
-        runs=("runs_batter", "sum"),
+        runs=("runs_total", "sum"),
     ).reset_index()
     
     venue_phase_avg = venue_phase.groupby(["venue", "format", "phase"]).agg(
@@ -683,10 +854,14 @@ def compute_venue_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     )
     
     # Boundary frequency
-    venue_boundaries = deliveries_df.groupby(["venue", "format"]).agg(
-        total_balls=("ball_in_over", "count"),
-        fours=("runs_batter", lambda x: (x == 4).sum()),
-        sixes=("runs_batter", lambda x: (x == 6).sum()),
+    boundary_data = deliveries_df.copy()
+    boundary_data["ball_faced"] = _is_ball_faced(boundary_data).astype(int)
+    boundary_data["is_four"] = _is_boundary(boundary_data, 4).astype(int)
+    boundary_data["is_six"] = _is_boundary(boundary_data, 6).astype(int)
+    venue_boundaries = boundary_data.groupby(["venue", "format"]).agg(
+        total_balls=("ball_faced", "sum"),
+        fours=("is_four", "sum"),
+        sixes=("is_six", "sum"),
     ).reset_index()
     
     venue_boundaries["boundary_frequency"] = np.round(
@@ -714,11 +889,14 @@ def compute_venue_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     ).reset_index()
     
     # For 2nd innings, the batting team is the chasing team
-    second_innings = deliveries_df[deliveries_df["innings_number"] == 2].groupby("match_id").agg(
+    second_innings = deliveries_df[
+        (deliveries_df["innings_number"] == 2) & (deliveries_df["format"] != "Test")
+    ].groupby("match_id").agg(
         chasing_team=("batting_team", "first"),
     ).reset_index()
     
-    match_winners = match_winners.merge(second_innings, on="match_id", how="left")
+    match_winners = match_winners.merge(second_innings, on="match_id", how="inner")
+    match_winners = match_winners[match_winners["winner"].fillna("") != ""].copy()
     match_winners["is_chasing_win"] = match_winners["winner"] == match_winners["chasing_team"]
     
     venue_chase = match_winners.groupby(["venue", "format"]).agg(
@@ -735,12 +913,10 @@ def compute_venue_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
         venue_chase[["venue", "format", "chasing_win_pct", "defending_win_pct"]],
         on=["venue", "format"], how="left"
     )
-    result["chasing_win_pct"] = result["chasing_win_pct"].fillna(50.0)
-    result["defending_win_pct"] = result["defending_win_pct"].fillna(50.0)
-    
-    # Pace/spin wicket percentages (approximate from bowling type)
-    result["pace_wickets_pct"] = 55.0  # Placeholder — requires bowling type data
-    result["spin_wickets_pct"] = 45.0
+    # Delivery rows currently have no reliable bowling-style dimension. Null
+    # values are preferable to publishing a fabricated fixed 55/45 split.
+    result["pace_wickets_pct"] = np.nan
+    result["spin_wickets_pct"] = np.nan
     
     # Fill NaN
     for col in ["avg_first_innings_score", "avg_second_innings_score", "avg_powerplay_runs",
@@ -770,19 +946,25 @@ def compute_matchups(deliveries_df: pd.DataFrame, min_balls: int = 10) -> pd.Dat
         (deliveries_df["batter"] != "") &
         (deliveries_df["bowler"] != "")
     ].copy()
-    
+    valid["ball_faced"] = _is_ball_faced(valid).astype(int)
+    valid["is_dot_ball"] = (
+        valid["ball_faced"].astype(bool)
+        & (pd.to_numeric(valid["runs_total"], errors="coerce").fillna(0) == 0)
+    ).astype(int)
+    valid["is_four"] = _is_boundary(valid, 4).astype(int)
+    valid["is_six"] = _is_boundary(valid, 6).astype(int)
+    valid["is_boundary"] = valid["is_four"] + valid["is_six"]
     valid["is_dismissed"] = (
-        valid["is_wicket"] & 
-        (valid["dismissed_player"] == valid["batter"])
+        _is_bowler_wicket(valid) & (valid["dismissed_player"] == valid["batter"])
     )
     
     grouped = valid.groupby(["batter", "bowler", "format"]).agg(
-        total_balls=("ball_in_over", "count"),
+        total_balls=("ball_faced", "sum"),
         total_runs=("runs_batter", "sum"),
         total_wickets=("is_dismissed", "sum"),
-        dot_balls=("runs_batter", lambda x: (x == 0).sum()),
-        boundaries=("runs_batter", lambda x: (x >= 4).sum()),
-        sixes=("runs_batter", lambda x: (x == 6).sum()),
+        dot_balls=("is_dot_ball", "sum"),
+        boundaries=("is_boundary", "sum"),
+        sixes=("is_six", "sum"),
         matches=("match_id", "nunique"),
     ).reset_index()
     

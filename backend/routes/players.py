@@ -12,7 +12,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from backend.utils.database import get_db
-from backend.utils.validation import validate_format, validate_sort_column, validate_sort_order, PLAYER_SORT_COLUMNS
+from backend.utils.validation import (
+    PLAYER_SORT_COLUMNS,
+    validate_format,
+    validate_sort_column,
+    validate_sort_order,
+    validate_uuid,
+)
 
 router = APIRouter()
 
@@ -41,7 +47,7 @@ async def list_players(
     Returns player summary including form score, batting/bowling stats.
     """
     # Default to T20 (IPL) if no format specified
-    target_format = format or "T20"
+    target_format = validate_format(format or "T20")
 
     # Build query with optional filters
     query = text("""
@@ -106,14 +112,9 @@ async def get_player(player_id: str, format: Optional[str] = Query(None), db: Se
     """
     Get detailed player information.
     """
-    # Try UUID format
-    try:
-        from uuid import UUID
-        UUID(player_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid player ID format")
+    validate_uuid(player_id, "player_id")
 
-    target_format = format or "T20"
+    target_format = validate_format(format or "T20")
 
     row = db.execute(
         text("""
@@ -163,7 +164,8 @@ async def get_player(player_id: str, format: Optional[str] = Query(None), db: Se
 @router.get("/{player_id}/form")
 async def get_player_form(player_id: str, format: Optional[str] = Query(None), db: Session = Depends(get_db)):
     """Get player form score with component breakdown."""
-    target_format = format or "T20"
+    validate_uuid(player_id, "player_id")
+    target_format = validate_format(format or "T20")
 
     row = db.execute(
         text("""
@@ -208,7 +210,8 @@ async def get_player_batting(
     db: Session = Depends(get_db),
 ):
     """Get detailed batting statistics for a player."""
-    target_format = format or "T20"
+    validate_uuid(player_id, "player_id")
+    target_format = validate_format(format or "T20")
     target_period = period or "career"
 
     row = db.execute(
@@ -233,7 +236,8 @@ async def get_player_bowling(
     db: Session = Depends(get_db),
 ):
     """Get detailed bowling statistics for a player."""
-    target_format = format or "T20"
+    validate_uuid(player_id, "player_id")
+    target_format = validate_format(format or "T20")
     target_period = period or "career"
 
     row = db.execute(
@@ -258,7 +262,13 @@ async def get_player_matchups(
     db: Session = Depends(get_db),
 ):
     """Get player matchup data against specific opponents."""
-    target_format = format or "T20"
+    validate_uuid(player_id, "player_id")
+    target_format = validate_format(format or "T20")
+
+    if type not in {"batting", "bowling"}:
+        raise HTTPException(
+            status_code=400, detail="Invalid matchup type. Must be batting or bowling"
+        )
 
     if type == "batting":
         rows = db.execute(
@@ -305,11 +315,7 @@ async def get_player_matchups(
 @router.get("/{player_id}/affiliations")
 async def get_player_affiliations(player_id: str, db: Session = Depends(get_db)):
     """Get team affiliations for a player across formats and competitions."""
-    try:
-        from uuid import UUID
-        UUID(player_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid player ID format")
+    validate_uuid(player_id, "player_id")
 
     rows = db.execute(
         text("""

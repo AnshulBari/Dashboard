@@ -53,7 +53,12 @@ async def get_platform_rankings(
 
     These are derived from the platform's own statistical analysis.
     """
-    target_format = format or "T20"
+    target_format = validate_format(format or "T20")
+    if category not in {"batting", "bowling", "allrounder"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid category. Must be one of: batting, bowling, allrounder",
+        )
 
     if category == "batting":
         rows = db.execute(
@@ -178,14 +183,14 @@ async def get_icc_rankings(
             force_refresh=refresh,
         )
     else:
-        if category not in ("batting", "bowling", "allrounders"):
+        if category not in ("batting", "bowling", "allrounder", "allrounders"):
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid category '{category}'. Must be one of: batting, bowling, allrounders, teams",
             )
         result = _rankings_service.get_player_rankings(
             format=fmt,
-            category=category,
+            category="allrounders" if category == "allrounder" else category,
             force_refresh=refresh,
         )
 
@@ -214,6 +219,10 @@ async def get_rankings(
     Use 'source=platform' for platform-computed rankings (default).
     Use 'source=icc' for official ICC rankings.
     """
+    if source not in {"platform", "icc"}:
+        raise HTTPException(
+            status_code=400, detail="Invalid source. Must be platform or icc"
+        )
     if source == "icc":
         # Redirect to ICC endpoint
         return await get_icc_rankings(

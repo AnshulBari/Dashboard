@@ -17,6 +17,15 @@ from pyspark.sql import functions as F
 from pyspark.sql import Window
 from datetime import datetime, timedelta
 
+from data_pipeline.spark.transform import (
+    _ball_faced,
+    _batter_out,
+    _bowler_runs,
+    _bowler_wicket,
+    _legal_ball,
+    _phase,
+)
+
 
 def compute_career_batting_stats(
     player_innings_df: DataFrame,
@@ -30,7 +39,7 @@ def compute_career_batting_stats(
     career = player_innings_df.groupBy(
         "batter", "format"
     ).agg(
-        F.count("match_id").alias("matches"),
+        F.countDistinct("match_id").alias("matches"),
         F.count("innings_id").alias("innings"),
         F.sum(F.when(F.col("is_out") == 0, 1).otherwise(0)).alias("not_outs"),
         F.sum("runs").alias("runs"),
@@ -38,7 +47,7 @@ def compute_career_batting_stats(
         F.sum("balls_faced").alias("balls_faced"),
         F.sum("fours").alias("fours"),
         F.sum("sixes").alias("sixes"),
-        F.sum(F.when(F.col("runs") >= 50, 1).otherwise(0)).alias("fifties"),
+        F.sum(F.when((F.col("runs") >= 50) & (F.col("runs") < 100), 1).otherwise(0)).alias("fifties"),
         F.sum(F.when(F.col("runs") >= 100, 1).otherwise(0)).alias("hundreds"),
         F.first("batting_team").alias("primary_team"),
     )
@@ -88,7 +97,7 @@ def compute_recent_batting_stats(
     recent = recent_df.groupBy(
         "batter", "format"
     ).agg(
-        F.count("match_id").alias("matches"),
+        F.countDistinct("match_id").alias("matches"),
         F.count("innings_id").alias("innings"),
         F.sum("runs").alias("runs"),
         F.sum("balls_faced").alias("balls_faced"),
@@ -122,26 +131,18 @@ def compute_batting_by_phase(
     """
     Compute batting stats broken down by match phase.
     
-    Phases:
-    - Powerplay: overs 1-6
-    - Middle: overs 7-15
-    - Death: overs 16-20
+    Uses format-aware, zero-indexed phase boundaries.
     """
-    phase_df = deliveries_df.withColumn(
-        "phase",
-        F.when(F.col("over_number") <= 6, F.lit("powerplay"))
-        .when(F.col("over_number") <= 15, F.lit("middle"))
-        .otherwise(F.lit("death"))
-    )
+    phase_df = deliveries_df.withColumn("phase", _phase())
     
     phase_stats = phase_df.groupBy(
         "batter", "format", "phase"
     ).agg(
-        F.count("*").alias("balls"),
+        F.sum(F.when(_ball_faced(), 1).otherwise(0)).alias("balls"),
         F.sum("runs_batter").alias("runs"),
-        F.sum(F.when(F.col("is_wicket"), 1).otherwise(0)).alias("dismissals"),
-        F.sum(F.when(F.col("runs_batter") >= 4, 1).otherwise(0)).alias("boundaries"),
-        F.sum(F.when(F.col("runs_batter") == 0, 1).otherwise(0)).alias("dots"),
+        F.sum(F.when(_batter_out(), 1).otherwise(0)).alias("dismissals"),
+        F.sum(F.when(F.col("runs_batter").isin(4, 6) & ~F.col("non_boundary"), 1).otherwise(0)).alias("boundaries"),
+        F.sum(F.when(_ball_faced() & (F.col("runs_total") == 0), 1).otherwise(0)).alias("dots"),
     )
     
     phase_stats = phase_stats.withColumn(
@@ -173,10 +174,10 @@ def compute_batting_by_situation(
     situation_stats = situation_df.groupBy(
         "batter", "format", "situation"
     ).agg(
-        F.count("match_id").alias("matches"),
-        F.count("*").alias("balls"),
+        F.countDistinct("match_id").alias("matches"),
+        F.sum(F.when(_ball_faced(), 1).otherwise(0)).alias("balls"),
         F.sum("runs_batter").alias("runs"),
-        F.sum(F.when(F.col("is_wicket"), 1).otherwise(0)).alias("dismissals"),
+        F.sum(F.when(_batter_out(), 1).otherwise(0)).alias("dismissals"),
         F.avg("runs_batter").alias("avg_per_ball"),
     )
     
@@ -202,7 +203,7 @@ def compute_career_bowling_stats(
     career = bowler_innings_df.groupBy(
         "bowler", "format"
     ).agg(
-        F.count("match_id").alias("matches"),
+        F.countDistinct("match_id").alias("matches"),
         F.count("innings_id").alias("innings"),
         F.sum("balls_bowled").alias("balls_bowled"),
         F.sum("runs_conceded").alias("runs_conceded"),
@@ -255,10 +256,10 @@ def compute_bowling_by_phase(
     phase_stats = phase_df.groupBy(
         "bowler", "format", "phase"
     ).agg(
-        F.count("*").alias("balls"),
-        F.sum("runs_total").alias("runs_conceded"),
-        F.sum(F.when(F.col("is_wicket"), 1).otherwise(0)).alias("wickets"),
-        F.sum(F.when(F.col("runs_batter") == 0, 1).otherwise(0)).alias("dots"),
+        F.sum(F.when(_legal_ball(), 1).otherwise(0)).alias("balls"),
+        F.sum(_bowler_runs()).alias("runs_conceded"),
+        F.sum(F.when(_bowler_wicket(), 1).otherwise(0)).alias("wickets"),
+        F.sum(F.when(_legal_ball() & (F.col("runs_total") == 0), 1).otherwise(0)).alias("dots"),
     )
     
     phase_stats = phase_stats.withColumn(
