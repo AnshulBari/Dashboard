@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useOutletContext } from 'react-router-dom'
 import { ArrowLeft, MapPin } from 'lucide-react'
 import { useVenueAnalytics } from '@/hooks/useQueries'
 import { SkeletonCard, Skeleton } from '@/components/ui/Skeleton'
@@ -7,7 +7,8 @@ import EmptyState from '@/components/ui/EmptyState'
 
 export default function VenueDetail() {
   const { id } = useParams()
-  const { data: venue, isLoading, isError, refetch } = useVenueAnalytics(id || '')
+  const { format } = useOutletContext<{ format: string }>()
+  const { data: venue, isLoading, isError, refetch } = useVenueAnalytics(id || '', format)
 
   if (isError) {
     return (

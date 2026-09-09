@@ -5,11 +5,12 @@ import { SkeletonMatch } from '@/components/ui/Skeleton'
 import ErrorCard from '@/components/ui/ErrorCard'
 import EmptyState from '@/components/ui/EmptyState'
 import FormatBadge from '@/components/ui/FormatBadge'
+import CountryFlag from '@/components/ui/CountryFlag'
 interface PageContext { format: string }
 
 export default function Matches() {
   const { format } = useOutletContext<PageContext>()
-  const matches = useMatchList({ format: format === 'All' ? undefined : format, limit: 50 })
+  const matches = useMatchList({ format, limit: 50 })
 
   return (
     <div className="space-y-5">
@@ -19,7 +20,7 @@ export default function Matches() {
           Matches
         </h1>
         <p className="page-subtitle">
-          {matches.data?.total?.toLocaleString() || '—'} matches · {format === 'All' ? 'All formats' : format}
+          {matches.data?.total?.toLocaleString() || '—'} matches · {format === 'International' ? 'T20I + ODI + Test' : format}
         </p>
       </div>
 
@@ -39,10 +40,12 @@ export default function Matches() {
             >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-3 min-w-0">
+                  <CountryFlag team={match.team_a} size="sm" />
                   <span className="text-sm font-semibold text-gray-200 truncate group-hover:text-emerald-400 transition-colors">
                     {match.team_a || 'TBD'}
                   </span>
                   <span className="text-[10px] text-gray-600 font-medium">vs</span>
+                  <CountryFlag team={match.team_b} size="sm" />
                   <span className="text-sm font-semibold text-gray-200 truncate group-hover:text-emerald-400 transition-colors">
                     {match.team_b || 'TBD'}
                   </span>

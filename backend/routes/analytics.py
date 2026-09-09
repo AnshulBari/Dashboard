@@ -13,6 +13,7 @@ from sqlalchemy import text
 
 from backend.utils.database import get_db
 from backend.services import analytics
+from backend.utils.player_images import get_player_image_url
 from backend.utils.validation import validate_format, validate_uuid
 
 router = APIRouter()
@@ -384,6 +385,12 @@ async def match_detail(match_id: str, db: Session = Depends(get_db)):
         conn.close()
     if not result:
         raise HTTPException(status_code=404, detail="Match not found")
+    for innings in result.get("innings", []):
+        for section in ("batting", "bowling"):
+            for player in innings.get(section, []):
+                player["image_url"] = get_player_image_url(
+                    player.get("player_name"), player_id=player.get("player_id")
+                )
     return result
 
 

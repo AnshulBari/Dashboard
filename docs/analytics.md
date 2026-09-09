@@ -82,30 +82,30 @@ bowler.
 - `middle_overs/wickets/economy`
 - `death_overs/wickets/economy`
 
-## Player Form Score
+## Player Impact Score
 
-**Table:** `player_form`  
+**Table:** `player_form` (legacy physical name)  
 **Scope:** `(player_id, format)`
 
-An original composite metric measuring recent performance quality.
+One role-aware 0–100 metric for meaningful contribution. Recent form is a component of Impact Score, not a separate headline rating.
 
 ### Weighting Formula
 
 | Component | Weight | Description |
 |-----------|--------|-------------|
-| Recent Performance | 35% | Average runs in last 10 innings |
-| Consistency | 20% | 1 - coefficient of variation |
-| Opposition Strength | 15% | Opponent bowling economy/wicket strength, weighted by balls faced |
-| Venue Performance | 10% | CV across venues (lower = better) |
-| Match Situation | 10% | Chasing avg / overall avg ratio |
-| Efficiency | 10% | Strike rate × average / 100 |
+| Performance Impact | 35% | Sustained format-relative batting and bowling contribution |
+| Recent Form | 30% | Rolling batting and bowling output with sample confidence |
+| Pressure Impact | 15% | Contribution in demanding match situations |
+| Opposition Quality | 10% | Quality of opposition faced |
+| Consistency | 5% | Reliability across innings |
+| Efficiency | 5% | Format-relative scoring or bowling efficiency |
 
-All components are min-max normalized within each format before weighting.
+Batting and bowling are ranked independently within each format, then combined role-aware using 75% of the stronger discipline and 25% of the secondary discipline. Sample-confidence shrinkage pulls small samples toward 50.
 
 ### Requirements
 
-- Minimum 3 innings required
-- Recent performance uses last 10 innings
+- Three innings are required before a discipline receives a ranked component
+- Recent batting and bowling use the rolling recent-performance aggregates
 
 ## Team Performance
 

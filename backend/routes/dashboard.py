@@ -7,7 +7,7 @@ Reduces 5+ separate API calls into a single response.
 
 The dashboard needs:
 1. Entity counts (players, teams, matches, venues)
-2. Top players by form score
+2. Top players by unified Impact Score
 3. Recent matches
 4. Top venues
 5. Live match status
@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from backend.utils.database import get_db
-from backend.utils.validation import validate_format
+from backend.utils.validation import format_scope_clause
 
 router = APIRouter()
 
@@ -49,39 +49,50 @@ async def dashboard_summary(
     - Latency (1 round trip vs 5)
     - Database connection pressure
     """
-    target_format = validate_format(format or "T20")
+    target_format, match_filter, params = format_scope_clause("m.format", format)
+    _, form_filter, form_params = format_scope_clause("format", format)
+    _, venue_filter, venue_params = format_scope_clause("format", format)
+    params.update(form_params)
+    params.update(venue_params)
     
     # 1. Entity counts (single efficient query)
     counts = db.execute(
-        text("""
+        text(f"""
             SELECT
                 (SELECT COUNT(*) FROM players WHERE is_active = true) AS players,
                 (SELECT COUNT(*) FROM teams WHERE is_active = true) AS teams,
-                (SELECT COUNT(*) FROM matches) AS matches,
+                (SELECT COUNT(*) FROM matches m WHERE {match_filter}) AS matches,
                 (SELECT COUNT(*) FROM venues) AS venues
-        """)
+        """),
+        params,
     ).fetchone()
     
-    # 2. Top players by form score (limited to 10)
+    # 2. Top players by Impact Score (limited to 10)
     top_players = db.execute(
-        text("""
+        text(f"""
+            WITH pf AS (
+                SELECT player_id,
+                    ROUND(SUM(form_score * COALESCE(NULLIF(recent_innings_count, 0), 1)) /
+                          NULLIF(SUM(COALESCE(NULLIF(recent_innings_count, 0), 1)), 0), 2) AS impact_score
+                FROM player_form WHERE {form_filter} GROUP BY player_id
+            )
             SELECT
                 p.id, p.canonical_name AS name, p.role, p.country,
                 t.canonical_name AS team_name,
-                pf.form_score
+                pf.impact_score
             FROM players p
             LEFT JOIN teams t ON p.team_id = t.id
-            LEFT JOIN player_form pf ON p.id = pf.player_id AND pf.format = :fmt
-            WHERE p.is_active = true AND pf.form_score IS NOT NULL
-            ORDER BY pf.form_score DESC
+            LEFT JOIN pf ON p.id = pf.player_id
+            WHERE p.is_active = true AND pf.impact_score IS NOT NULL
+            ORDER BY pf.impact_score DESC
             LIMIT 10
         """),
-        {"fmt": target_format},
+        params,
     ).fetchall()
     
     # 3. Recent matches (limited to 8)
     recent_matches = db.execute(
-        text("""
+        text(f"""
             SELECT
                 m.id, m.match_date, m.format,
                 ta.canonical_name AS team_a,
@@ -96,27 +107,33 @@ async def dashboard_summary(
             LEFT JOIN teams tw ON m.winner_id = tw.id
             LEFT JOIN venues v ON m.venue_id = v.id
             LEFT JOIN competitions c ON m.competition_id = c.id
-            WHERE m.format = :fmt
+            WHERE {match_filter}
             ORDER BY m.match_date DESC
             LIMIT 8
         """),
-        {"fmt": target_format},
+        params,
     ).fetchall()
     
     # 4. Top venues by match count (limited to 6)
     top_venues = db.execute(
-        text("""
+        text(f"""
+            WITH vs AS (
+                SELECT venue_id, SUM(total_matches) AS total_matches,
+                    ROUND(SUM(avg_first_innings_score * total_matches) / NULLIF(SUM(total_matches), 0), 2) AS avg_first_innings_score,
+                    ROUND(SUM(chasing_win_pct * total_matches) / NULLIF(SUM(total_matches), 0), 2) AS chasing_win_pct
+                FROM venue_stats WHERE {venue_filter} GROUP BY venue_id
+            )
             SELECT
                 v.id, v.name, v.city, v.country,
                 vs.total_matches, vs.avg_first_innings_score,
                 vs.chasing_win_pct
             FROM venues v
-            LEFT JOIN venue_stats vs ON v.id = vs.venue_id AND vs.format = :fmt
+            LEFT JOIN vs ON v.id = vs.venue_id
             WHERE vs.total_matches IS NOT NULL
             ORDER BY vs.total_matches DESC
             LIMIT 6
         """),
-        {"fmt": target_format},
+        params,
     ).fetchall()
     
     # Build response

@@ -99,6 +99,7 @@ def compute_recent_batting_stats(
     ).agg(
         F.countDistinct("match_id").alias("matches"),
         F.count("innings_id").alias("innings"),
+        F.sum(F.when(F.col("is_out") == 0, 1).otherwise(0)).alias("not_outs"),
         F.sum("runs").alias("runs"),
         F.sum("balls_faced").alias("balls_faced"),
         F.sum("fours").alias("fours"),
@@ -117,8 +118,8 @@ def compute_recent_batting_stats(
     ).withColumn(
         "batting_average",
         F.when(
-            (F.col("innings") - F.sum("not_outs")) > 0,
-            F.round(F.col("runs") / (F.col("innings") - F.lit(0)), 2)
+            (F.col("innings") - F.col("not_outs")) > 0,
+            F.round(F.col("runs") / (F.col("innings") - F.col("not_outs")), 2)
         ).otherwise(F.col("runs").cast("double"))
     )
     

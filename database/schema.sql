@@ -384,27 +384,44 @@ CREATE TABLE player_bowling_stats (
 CREATE INDEX idx_pws_player ON player_bowling_stats(player_id);
 CREATE INDEX idx_pws_format_period ON player_bowling_stats(format, period);
 
--- Player Form Score (original project metric)
+-- Unified Player Impact Score (legacy table/column names retained for compatibility)
 CREATE TABLE player_form (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
     format VARCHAR(20) NOT NULL,
 
-    form_score DECIMAL(5,2) NOT NULL,
-    recent_performance_component DECIMAL(5,2),  -- weight: 35%
-    consistency_component DECIMAL(5,2),          -- weight: 20%
-    opposition_strength_component DECIMAL(5,2),  -- weight: 15%
-    venue_performance_component DECIMAL(5,2),    -- weight: 10%
-    match_situation_component DECIMAL(5,2),      -- weight: 10%
-    efficiency_component DECIMAL(5,2),           -- weight: 10%
+    form_score DECIMAL(5,2) NOT NULL,              -- public impact_score
+    recent_performance_component DECIMAL(5,2),    -- recent form, weight: 30%
+    consistency_component DECIMAL(5,2),           -- weight: 5%
+    opposition_strength_component DECIMAL(5,2),   -- opposition quality, weight: 10%
+    venue_performance_component DECIMAL(5,2),     -- sustained performance impact, weight: 35%
+    match_situation_component DECIMAL(5,2),       -- pressure impact, weight: 15%
+    efficiency_component DECIMAL(5,2),            -- weight: 5%
 
     recent_innings_count INTEGER,
+    last_match_date DATE,
     last_calculated_at TIMESTAMP DEFAULT NOW(),
 
     UNIQUE(player_id, format)
 );
 
 CREATE INDEX idx_pf_player ON player_form(player_id);
+
+CREATE TABLE player_recent_stats (
+    player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    format VARCHAR(20) NOT NULL,
+    window_start DATE NOT NULL,
+    last_match_date DATE,
+    matches INTEGER DEFAULT 0,
+    batting_innings INTEGER DEFAULT 0,
+    runs INTEGER DEFAULT 0,
+    balls_faced INTEGER DEFAULT 0,
+    bowling_innings INTEGER DEFAULT 0,
+    wickets INTEGER DEFAULT 0,
+    balls_bowled INTEGER DEFAULT 0,
+    runs_conceded INTEGER DEFAULT 0,
+    PRIMARY KEY (player_id, format)
+);
 
 -- Player Impact (future: Actual vs Expected performance)
 CREATE TABLE player_impact (
@@ -701,7 +718,7 @@ SELECT
     pws.wickets as career_wickets,
     pws.economy as career_economy,
     pws.bowling_average,
-    pf.form_score
+    pf.form_score AS impact_score
 FROM players p
 LEFT JOIN teams t ON p.team_id = t.id
 LEFT JOIN player_batting_stats pbs ON p.id = pbs.player_id

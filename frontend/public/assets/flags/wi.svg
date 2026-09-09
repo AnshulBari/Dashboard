@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 600" role="img" aria-labelledby="title">
+  <title id="title">West Indies regional flag</title>
+  <rect width="900" height="600" fill="#173d8f"/>
+  <circle cx="450" cy="300" r="82" fill="#f2b632"/>
+  <g fill="none" stroke="#fff" stroke-width="28">
+    <path d="M0 210c75-45 150-45 225 0s150 45 225 0 150-45 225 0 150 45 225 0"/>
+    <path d="M0 270c75-45 150-45 225 0s150 45 225 0 150-45 225 0 150 45 225 0"/>
+    <path d="M0 330c75-45 150-45 225 0s150 45 225 0 150-45 225 0 150 45 225 0"/>
+    <path d="M0 390c75-45 150-45 225 0s150 45 225 0 150-45 225 0 150 45 225 0"/>
+  </g>
+</svg>

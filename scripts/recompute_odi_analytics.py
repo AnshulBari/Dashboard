@@ -19,7 +19,7 @@ from data_pipeline.pipeline.db_manager import DatabaseManager
 from data_pipeline.pipeline.analytics import (
     compute_player_batting_stats, compute_player_bowling_stats,
     compute_player_form_scores, compute_team_performance,
-    compute_venue_stats, compute_matchups
+    compute_venue_stats, compute_matchups, deduplicate_delivery_events,
 )
 from data_pipeline.batch.runner import BatchRunner
 from data_pipeline.batch.manifest import BatchManifest
@@ -61,7 +61,7 @@ def load_chunk(engine, cids):
         LEFT JOIN teams t5 ON m.winner_id=t5.id LEFT JOIN venues v ON m.venue_id=v.id
         WHERE m.id IN ({ph})'''
     with engine.connect() as conn:
-        return pd.read_sql(text(q), conn, params=params)
+        return deduplicate_delivery_events(pd.read_sql(text(q), conn, params=params))
 
 CHUNK = 50
 total_chunks = (len(match_ids) - 1) // CHUNK + 1

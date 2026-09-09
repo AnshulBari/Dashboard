@@ -213,7 +213,8 @@ class TestAPI:
         assert len(data["players"]) > 0
         assert "id" in data["players"][0]
         assert "name" in data["players"][0]
-        assert "form_score" in data["players"][0]
+        assert "impact_score" in data["players"][0]
+        assert "form_score" not in data["players"][0]
 
     def test_player_detail(self):
         resp = self.client.get("/api/players/?format=T20&limit=1")
@@ -225,13 +226,14 @@ class TestAPI:
         assert "name" in data
         assert "runs" in data
 
-    def test_player_form(self):
+    def test_player_impact(self):
         resp = self.client.get("/api/players/?format=T20&limit=1")
         player_id = resp.json()["players"][0]["id"]
-        resp = self.client.get(f"/api/players/{player_id}/form?format=T20")
+        resp = self.client.get(f"/api/players/{player_id}/impact?format=T20")
         assert resp.status_code == 200
         data = resp.json()
-        assert "form_score" in data
+        assert "impact_score" in data
+        assert "form_score" not in data
         assert "components" in data
 
     def test_player_invalid_id(self):

@@ -4,12 +4,18 @@ import { useTeamList } from '@/hooks/useQueries'
 import { Skeleton } from '@/components/ui/Skeleton'
 import ErrorCard from '@/components/ui/ErrorCard'
 import EmptyState from '@/components/ui/EmptyState'
+import CountryFlag from '@/components/ui/CountryFlag'
 
 interface PageContext { format: string }
 
 export default function Teams() {
   const { format } = useOutletContext<PageContext>()
-  const teams = useTeamList({ format: format === 'All' ? undefined : format, limit: 100 })
+  const isInternational = format !== 'T20'
+  const teams = useTeamList({
+    format,
+    limit: 100,
+    full_members_only: isInternational,
+  })
 
   return (
     <div className="space-y-5">
@@ -19,7 +25,7 @@ export default function Teams() {
           Teams
         </h1>
         <p className="page-subtitle">
-          {teams.data?.teams?.length || '—'} teams · {format === 'All' ? 'All formats' : format}
+          {teams.data?.teams?.length || '—'} teams · {isInternational ? `ICC Full Members · ${format === 'International' ? 'T20I + ODI + Test' : format}` : 'Franchise T20'}
         </p>
       </div>
 
@@ -41,9 +47,7 @@ export default function Teams() {
             >
               <div className="flex items-center gap-3 mb-3">
                 <span className="text-[10px] font-bold text-gray-600 w-4">{idx + 1}</span>
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center text-sm font-bold text-gray-300 border border-white/10">
-                  {team.short_name?.charAt(0) || team.name?.charAt(0) || '?'}
-                </div>
+                <CountryFlag team={team.name} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-gray-200 truncate group-hover:text-emerald-400 transition-colors">{team.name}</p>
                   <p className="text-[11px] text-gray-500">{team.short_name || team.country || '—'}</p>

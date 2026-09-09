@@ -13,9 +13,12 @@ export function usePlayerList(params?: {
   format?: string
   role?: string
   country?: string
+  search?: string
   sort_by?: string
   limit?: number
   offset?: number
+  full_members_only?: boolean
+  recent_only?: boolean
 }) {
   return useQuery({
     queryKey: queryKeys.player.list(params as Record<string, string>),
@@ -33,10 +36,10 @@ export function usePlayer(id: string, format?: string) {
   })
 }
 
-export function usePlayerForm(id: string, format?: string) {
+export function usePlayerImpact(id: string, format?: string) {
   return useQuery({
-    queryKey: queryKeys.player.form(id, format),
-    queryFn: () => playerApi.getForm(id, format),
+    queryKey: queryKeys.player.impact(id, format),
+    queryFn: () => playerApi.getImpact(id, format),
     enabled: !!id,
     staleTime: 5 * 60 * 1000,
   })
@@ -136,7 +139,7 @@ export function usePlayerProgression(id: string, format: string) {
 // Team Hooks
 // ============================================================
 
-export function useTeamList(params?: { format?: string; sort_by?: string; limit?: number }) {
+export function useTeamList(params?: { format?: string; sort_by?: string; limit?: number; full_members_only?: boolean; recent_only?: boolean }) {
   return useQuery({
     queryKey: queryKeys.team.list(params as Record<string, string>),
     queryFn: () => teamApi.list(params),
@@ -191,6 +194,9 @@ export function useMatchList(params?: {
   season?: string
   limit?: number
   offset?: number
+  full_members_only?: boolean
+  recent_only?: boolean
+  completed_only?: boolean
 }) {
   return useQuery({
     queryKey: queryKeys.match.list(params as Record<string, string>),
@@ -221,7 +227,7 @@ export function useMatchScorecard(id: string) {
 // Venue Hooks
 // ============================================================
 
-export function useVenueList(params?: { format?: string; country?: string; limit?: number }) {
+export function useVenueList(params?: { format?: string; country?: string; limit?: number; full_members_only?: boolean; recent_only?: boolean }) {
   return useQuery({
     queryKey: queryKeys.venue.list(params as Record<string, string>),
     queryFn: () => venueApi.list(params),

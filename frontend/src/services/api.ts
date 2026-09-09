@@ -45,7 +45,7 @@ export const playerApi = {
 
   get: (id: string) => fetchJson(`/players/${id}`),
 
-  getForm: (id: string) => fetchJson(`/players/${id}/form`),
+  getImpact: (id: string) => fetchJson(`/players/${id}/impact`),
 
   getBatting: (id: string, format?: string) => {
     const query = format ? `?format=${format}` : ''

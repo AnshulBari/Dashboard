@@ -193,6 +193,11 @@ class CricketPipeline:
         """
         logger.info("[Stage 5] Transforming data...")
         
+        # One authoritative event per delivery. Duplicate source rows otherwise
+        # inflate runs, wickets, dismissals, and every downstream aggregate.
+        normalized_df = normalized_df.dropDuplicates(
+            ["match_id", "innings_id", "over_number", "ball_in_over"]
+        )
         transformed = add_cumulative_stats(normalized_df)
         
         logger.info(f"[Stage 5] Added cumulative stats to {transformed.count()} rows")

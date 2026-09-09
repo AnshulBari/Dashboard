@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from backend.utils.database import get_db
-from backend.utils.validation import validate_format, validate_uuid
+from backend.utils.validation import format_scope_clause, full_member_clause, validate_uuid
 
 router = APIRouter()
 
@@ -20,6 +20,45 @@ def _row_to_dict(row) -> dict:
     if row is None:
         return None
     return dict(row._mapping)
+
+
+def _attach_innings_scores(db: Session, matches: list[dict]) -> None:
+    """Attach compact, correctly ordered team scorelines to match-list rows."""
+    if not matches:
+        return
+
+    match_params = {
+        f"score_match_{index}": str(match["id"]).replace("-", "")
+        for index, match in enumerate(matches)
+    }
+    placeholders = ", ".join(f":{key}" for key in match_params)
+    rows = db.execute(
+        text(f"""
+            SELECT REPLACE(CAST(i.match_id AS TEXT), '-', '') AS match_key,
+                   t.canonical_name AS batting_team,
+                   i.innings_number, i.total_runs, i.total_wickets
+            FROM innings i
+            JOIN teams t ON t.id = i.batting_team_id
+            WHERE REPLACE(CAST(i.match_id AS TEXT), '-', '') IN ({placeholders})
+            ORDER BY i.match_id, i.innings_number
+        """),
+        match_params,
+    ).fetchall()
+
+    scorelines: dict[tuple[str, str], list[str]] = {}
+    for row in rows:
+        score = _row_to_dict(row)
+        runs = score.get("total_runs")
+        wickets = score.get("total_wickets")
+        if runs is None:
+            continue
+        innings_score = str(runs) if wickets is None or wickets >= 10 else f"{runs}/{wickets}"
+        scorelines.setdefault((score["match_key"], score["batting_team"]), []).append(innings_score)
+
+    for match in matches:
+        match_key = str(match["id"]).replace("-", "")
+        match["score_team_a"] = " & ".join(scorelines.get((match_key, match.get("team_a")), [])) or None
+        match["score_team_b"] = " & ".join(scorelines.get((match_key, match.get("team_b")), [])) or None
 
 
 @router.get("/")
@@ -31,13 +70,33 @@ async def list_matches(
     venue: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    full_members_only: bool = Query(False, description="Restrict to matches between ICC Full Members"),
+    recent_only: bool = Query(False, description="Restrict to the recent-performance window"),
+    completed_only: bool = Query(False, description="Restrict to completed matches up to today"),
     db: Session = Depends(get_db),
 ):
     """List matches with filtering options."""
-    target_format = validate_format(format or "T20")
+    target_format, format_filter, params = format_scope_clause("m.format", format)
 
-    where_clauses = ["m.format = :fmt"]
-    params = {"fmt": target_format, "limit": limit, "offset": offset}
+    where_clauses = [format_filter]
+    params.update({"limit": limit, "offset": offset})
+
+    if full_members_only is True:
+        member_filter, member_params = full_member_clause("ta.canonical_name", "tb.canonical_name")
+        where_clauses.append(member_filter)
+        params.update(member_params)
+
+    if recent_only is True:
+        from datetime import date, timedelta
+        where_clauses.append("m.match_date >= :recent_cutoff")
+        params["recent_cutoff"] = (date.today() - timedelta(days=548)).isoformat()
+
+    if completed_only is True:
+        from datetime import date
+        where_clauses.append("m.match_date <= :completed_through")
+        where_clauses.append("COALESCE(m.is_live, false) = false")
+        where_clauses.append("m.result_type IN ('win', 'draw', 'tie', 'no_result', 'abandoned')")
+        params["completed_through"] = date.today().isoformat()
 
     if competition:
         where_clauses.append("c.name = :comp")
@@ -115,6 +174,8 @@ async def list_matches(
             d["result"] = "No result"
         matches.append(d)
 
+    _attach_innings_scores(db, matches)
+
     # Count total
     count_sql = f"""
         SELECT COUNT(*) FROM matches m
@@ -131,6 +192,7 @@ async def list_matches(
     return {
         "matches": matches,
         "total": total,
+        "format": target_format,
         "limit": limit,
         "offset": offset,
     }

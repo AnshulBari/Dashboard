@@ -118,7 +118,7 @@ Computes all analytical statistics from delivery-level data. See [Analytics Meth
 **Computed tables:**
 - `player_batting_stats` — Career and phase-specific batting statistics
 - `player_bowling_stats` — Career and phase-specific bowling statistics
-- `player_form` — Weighted composite form score (0–100)
+- `player_form` — Unified role-aware Impact Score (0–100; legacy physical table name)
 - `team_performance` — Win rates, strength scores, phase performance
 - `venue_stats` — Average scores, phase-wise statistics, pace/spin distribution
 - `batter_bowler_matchups` — Head-to-head batter vs bowler statistics

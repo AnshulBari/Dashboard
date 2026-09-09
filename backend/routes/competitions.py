@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from backend.utils.database import get_db
-from backend.utils.validation import validate_format, validate_uuid
+from backend.utils.validation import format_scope_clause, validate_uuid
 
 router = APIRouter()
 
@@ -29,12 +29,9 @@ async def list_competitions(
     db: Session = Depends(get_db),
 ):
     """List all competitions."""
-    params = {"limit": limit}
-    where = "WHERE 1=1"
-    if format:
-        validate_format(format)
-        where += " AND c.format = :fmt"
-        params["fmt"] = format
+    target_format, competition_filter, params = format_scope_clause("c.format", format)
+    params["limit"] = limit
+    where = f"WHERE {competition_filter}"
 
     rows = db.execute(
         text(f"""
@@ -56,7 +53,7 @@ async def list_competitions(
         d["id"] = str(d["id"])
         competitions.append(d)
 
-    return {"competitions": competitions, "total": total}
+    return {"competitions": competitions, "total": total, "format": target_format}
 
 
 @router.get("/{competition_id}")

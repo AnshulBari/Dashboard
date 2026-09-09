@@ -12,14 +12,51 @@ from backend.models import entities  # noqa: F401
 from backend.providers.cricketdata import CricketDataProvider, MockCricketDataProvider
 from backend.services.live import LiveService
 from backend.utils.database import Base
+from backend.utils.player_images import get_player_image_url
+from backend.utils.stat_invariants import sanitize_stat_record
 from data_pipeline.pipeline.analytics import (
     compute_matchups,
     compute_player_batting_stats,
     compute_player_bowling_stats,
+    compute_player_form_scores,
     compute_team_performance,
 )
 from data_pipeline.pipeline.reader import flatten_match, normalize_result_type
+from data_pipeline.pipeline.player_identity import normalize_player_names
 from data_pipeline.pipeline.scorecards import compute_scorecard_from_json
+
+
+def test_player_image_resolver_uses_register_identity_and_rejects_unknown_names():
+    assert get_player_image_url("JE Root") == (
+        "https://a.espncdn.com/i/headshots/cricket/players/full/303669.png"
+    )
+    assert get_player_image_url("Joe Root") == (
+        "https://a.espncdn.com/i/headshots/cricket/players/full/303669.png"
+    )
+    assert get_player_image_url("Definitely Not A Registered Cricketer") is None
+
+
+def test_serving_guard_repairs_impossible_stat_relationships():
+    record = sanitize_stat_record({
+        "innings": 4,
+        "not_outs": -2,
+        "runs": 100,
+        "batting_average": -50,
+        "strike_rate": -10,
+        "total_balls": 6,
+        "dot_balls": 8,
+        "boundaries": -1,
+        "total_wickets": 9,
+        "boundary_pct": 120,
+    })
+
+    assert record["not_outs"] == 0
+    assert record["batting_average"] == 25.0
+    assert record["strike_rate"] == 0
+    assert record["dot_balls"] == 6
+    assert record["boundaries"] == 0
+    assert record["total_wickets"] == 6
+    assert record["boundary_pct"] == 100
 
 
 def _delivery_rows() -> pd.DataFrame:
@@ -71,6 +108,7 @@ def test_pandas_cricket_scoring_rules():
     assert batting["balls_faced"] == 5
     assert batting["dot_balls"] == 2
     assert batting["not_outs"] == 0
+    assert batting["highest_score"] == 4
 
     bowling = compute_player_bowling_stats(deliveries).iloc[0]
     assert bowling["balls_bowled"] == 4
@@ -82,6 +120,38 @@ def test_pandas_cricket_scoring_rules():
     matchup = compute_matchups(deliveries, min_balls=1).iloc[0]
     assert matchup["total_balls"] == 5
     assert matchup["total_wickets"] == 1
+
+
+def test_non_striker_run_out_counts_as_the_dismissed_players_out():
+    rows = [
+        {
+            **_delivery_rows().iloc[1].to_dict(),
+            "batter": "Striker",
+            "non_striker": "Runner",
+            "ball_in_over": 1,
+            "runs_batter": 1,
+            "runs_total": 1,
+            "is_wicket": True,
+            "wicket_type": "run out",
+            "dismissed_player": "Runner",
+        },
+        {
+            **_delivery_rows().iloc[1].to_dict(),
+            "ball_in_over": 2,
+            "batter": "Runner",
+            "non_striker": "Striker",
+            "runs_batter": 2,
+            "runs_total": 2,
+            "is_wicket": False,
+            "wicket_type": "",
+            "dismissed_player": "",
+        },
+    ]
+    stats = compute_player_batting_stats(pd.DataFrame(rows)).set_index("player_name")
+
+    assert stats.loc["Runner", "innings"] == 1
+    assert stats.loc["Runner", "not_outs"] == 0
+    assert stats.loc["Striker", "not_outs"] == 1
 
 
 def test_all_run_fours_are_not_counted_as_boundaries():
@@ -128,6 +198,47 @@ def test_cricsheet_outcomes_are_normalized_from_result_field():
         }],
     }, "match.json")
     assert rows[0]["result_type"] == "no_result"
+
+
+def test_player_aliases_are_canonicalized_in_every_source_column():
+    frame = pd.DataFrame({
+        "batter": ["V Kohli"],
+        "bowler": ["RG Sharma"],
+        "non_striker": ["JE Root"],
+        "player_of_match": ["V Kohli"],
+        "team_a_players": ["V Kohli,RG Sharma"],
+    })
+    normalized = normalize_player_names(frame).iloc[0]
+    assert normalized["batter"] == "Virat Kohli"
+    assert normalized["bowler"] == "Rohit Sharma"
+    assert normalized["non_striker"] == "Joe Root"
+    assert normalized["player_of_match"] == "Virat Kohli"
+    assert normalized["team_a_players"] == "Virat Kohli,Rohit Sharma"
+
+
+def test_validation_keeps_long_test_innings_but_rejects_impossible_t20_overs():
+    from data_pipeline.pipeline.run import CricketPipeline
+
+    base = _delivery_rows().iloc[0].to_dict()
+    long_test = {**base, "format": "Test", "over_number": 125}
+    invalid_t20 = {**base, "match_id": "m2", "format": "T20", "over_number": 125}
+    pipeline = CricketPipeline(database_url="sqlite:///:memory:")
+    validated = pipeline.validate(pd.DataFrame([long_test, invalid_t20]))
+    assert validated["match_id"].tolist() == ["m1"]
+    pipeline.db.close()
+
+
+def test_player_impact_records_the_latest_real_appearance_date():
+    base = _delivery_rows().iloc[1].to_dict()
+    rows = [
+        {**base, "match_id": f"m{index}", "match_date": match_date}
+        for index, match_date in enumerate(
+            ("2025-01-01", "2025-06-01", "2026-02-14"), start=1
+        )
+    ]
+    impact = compute_player_form_scores(pd.DataFrame(rows)).iloc[0]
+    assert str(impact["last_match_date"]) == "2026-02-14"
+    assert 0 <= impact["form_score"] <= 100  # Legacy storage column.
 
 
 def test_ties_are_not_losses_and_chase_defence_rates_are_independent():
@@ -346,6 +457,79 @@ def test_player_sorting_uses_public_career_wickets_alias():
         sort_order="desc", limit=10, offset=0, db=db,
     ))
     assert "ORDER BY pws.wickets DESC" in db.calls[-1][0]
+
+
+def test_player_search_includes_registered_source_aliases():
+    from backend.routes.players import list_players
+
+    db = _RecordingDB()
+    asyncio.run(list_players(
+        format=None, role=None, country=None, search="V Kohli",
+        sort_by="impact_score", sort_order="desc", limit=10, offset=0, db=db,
+    ))
+    sql = "\n".join(statement for statement, _ in db.calls)
+    assert "player_name_mappings" in sql
+    assert any(params.get("search") == "%v kohli%" for _, params in db.calls)
+
+
+def test_recent_full_member_leaderboard_uses_windowed_stats():
+    from backend.routes.players import list_players
+    from backend.utils.validation import FULL_MEMBER_TEAMS
+
+    db = _RecordingDB()
+    asyncio.run(list_players(
+        format=None, role=None, country=None, search=None,
+        sort_by="career_runs", sort_order="desc", limit=10, offset=0,
+        full_members_only=True, recent_only=True, db=db,
+    ))
+    sql = "\n".join(statement for statement, _ in db.calls)
+    assert "player_recent_stats" in sql
+    assert "MAX(last_match_date) >= :recent_cutoff" in sql
+    params = db.calls[-1][1]
+    assert {params[f"full_member_{index}"] for index in range(12)} == set(FULL_MEMBER_TEAMS)
+
+
+def test_player_profile_uses_national_team_and_latest_active_franchise():
+    from backend.routes.players import _player_display_team
+    from setup import _create_sqlite_schema
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    raw = engine.raw_connection()
+    _create_sqlite_schema(raw)
+    raw.executescript("""
+        INSERT INTO teams (id, canonical_name, short_name, country) VALUES
+          ('india', 'India', 'IND', 'India'),
+          ('csk', 'Chennai Super Kings', 'CSK', 'India'),
+          ('rps', 'Rising Pune Supergiants', 'RPS', 'India');
+        INSERT INTO players (id, canonical_name, team_id, is_active)
+          VALUES ('dhoni', 'MS Dhoni', 'rps', 1);
+        INSERT INTO player_team_affiliations (id, player_id, team_id, format, is_current) VALUES
+          ('a1', 'dhoni', 'india', 'T20I', 1),
+          ('a2', 'dhoni', 'india', 'Test', 1),
+          ('a3', 'dhoni', 'csk', 'T20', 1),
+          ('a4', 'dhoni', 'rps', 'T20', 1);
+        INSERT INTO matches (id, external_id, match_date, format) VALUES
+          ('old', 'old', '2017-05-01', 'T20'),
+          ('new', 'new', '2024-05-01', 'T20');
+        INSERT INTO innings (id, match_id, innings_number, batting_team_id, bowling_team_id) VALUES
+          ('i1', 'old', 1, 'rps', 'csk'),
+          ('i2', 'new', 1, 'csk', 'rps');
+        INSERT INTO deliveries
+          (id, innings_id, match_id, over_number, ball_in_over, striker_id) VALUES
+          ('d1', 'i1', 'old', 0, 1, 'dhoni'),
+          ('d2', 'i2', 'new', 0, 1, 'dhoni');
+    """)
+    raw.commit()
+    raw.close()
+    db = sessionmaker(bind=engine)()
+
+    assert _player_display_team(db, "dhoni", "International", "Rising Pune Supergiants") == "India"
+    assert _player_display_team(db, "dhoni", "T20", "Rising Pune Supergiants") == "Chennai Super Kings"
+    db.close()
 
 
 def test_core_list_filters_and_totals_work_on_sqlite():

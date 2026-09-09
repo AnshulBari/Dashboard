@@ -9,10 +9,16 @@ from fastapi import HTTPException
 
 # Allowed format values
 VALID_FORMATS = {"T20", "T20I", "ODI", "Test"}
+INTERNATIONAL_FORMATS = ("T20I", "ODI", "Test")
+DEFAULT_FORMAT_SCOPE = "International"
+FULL_MEMBER_TEAMS = (
+    "Afghanistan", "Australia", "Bangladesh", "England", "India", "Ireland",
+    "New Zealand", "Pakistan", "South Africa", "Sri Lanka", "West Indies", "Zimbabwe",
+)
 
 # Allowed sort columns (whitelisted to prevent SQL injection)
 PLAYER_SORT_COLUMNS = {
-    "form_score": "pf.form_score",
+    "impact_score": "pf.impact_score",
     "name": "p.canonical_name",
     "runs": "pbs.runs",
     "wickets": "pws.wickets",
@@ -42,6 +48,39 @@ def validate_format(fmt: str) -> str:
             detail=f"Invalid format '{fmt}'. Must be one of: {', '.join(sorted(VALID_FORMATS))}",
         )
     return fmt
+
+
+def validate_format_scope(fmt: str | None) -> str:
+    """Validate a single format or the aggregate international scope."""
+    if fmt is None or fmt.strip().lower() in {"international", "intl"}:
+        return DEFAULT_FORMAT_SCOPE
+    return validate_format(fmt)
+
+
+def format_scope_clause(column: str, fmt: str | None) -> tuple[str, str, dict]:
+    """Return a safe SQL predicate and parameters for a format selection.
+
+    The default deliberately excludes domestic T20 competitions such as the IPL.
+    ``column`` is supplied only by route code, never by an API caller.
+    """
+    scope = validate_format_scope(fmt)
+    if scope == DEFAULT_FORMAT_SCOPE:
+        return scope, f"{column} IN (:fmt_t20i, :fmt_odi, :fmt_test)", {
+            "fmt_t20i": "T20I",
+            "fmt_odi": "ODI",
+            "fmt_test": "Test",
+        }
+    return scope, f"{column} = :fmt", {"fmt": scope}
+
+
+def full_member_clause(*columns: str) -> tuple[str, dict]:
+    """Return a parameterized predicate restricting team-name columns."""
+    placeholders = ", ".join(f":full_member_{index}" for index in range(len(FULL_MEMBER_TEAMS)))
+    params = {
+        f"full_member_{index}": team
+        for index, team in enumerate(FULL_MEMBER_TEAMS)
+    }
+    return " AND ".join(f"{column} IN ({placeholders})" for column in columns), params
 
 
 def validate_uuid(value: str, field_name: str = "ID") -> str:

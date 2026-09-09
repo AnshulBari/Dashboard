@@ -37,7 +37,7 @@ from data_pipeline.pipeline.db_manager import DatabaseManager
 from data_pipeline.pipeline.analytics import (
     compute_player_batting_stats,
     compute_player_bowling_stats,
-    compute_player_form_scores,
+    compute_player_impact_scores,
     compute_team_performance,
     compute_venue_stats,
     compute_matchups,
@@ -174,7 +174,9 @@ class BatchRunner:
             analytics = {}
             analytics["batting"] = compute_player_batting_stats(df)
             analytics["bowling"] = compute_player_bowling_stats(df)
-            analytics["form"] = compute_player_form_scores(df)
+            analytics["impact"] = compute_player_impact_scores(
+                df, analytics["batting"], analytics["bowling"]
+            )
             analytics["team"] = compute_team_performance(df)
             analytics["venue"] = compute_venue_stats(df)
             analytics["matchups"] = compute_matchups(df)
@@ -623,19 +625,19 @@ class BatchRunner:
                 write_df, "player_bowling_stats", format_filter=format_filter
             )
 
-        # Player Form
-        form_df = analytics["form"]
-        if not form_df.empty:
-            form_df = self._resolve_player_ids(form_df, "player_name")
+        # Player Impact (legacy persistence names)
+        impact_df = analytics.get("impact", analytics.get("form", pd.DataFrame()))
+        if not impact_df.empty:
+            impact_df = self._resolve_player_ids(impact_df, "player_name")
             cols = [
                 "player_id", "format", "form_score",
                 "recent_performance_component", "consistency_component",
                 "opposition_strength_component", "venue_performance_component",
                 "match_situation_component", "efficiency_component",
-                "recent_innings_count",
+                "recent_innings_count", "last_match_date",
             ]
-            write_df = form_df[
-                [c for c in cols if c in form_df.columns]
+            write_df = impact_df[
+                [c for c in cols if c in impact_df.columns]
             ].copy()
             self.db.write_analytics_table(
                 write_df, "player_form", format_filter=format_filter

@@ -22,7 +22,7 @@ class PlayerSummary(BaseModel):
     role: Optional[str]
     country: Optional[str]
     team_name: Optional[str]
-    form_score: Optional[float]
+    impact_score: Optional[float]
     batting_average: Optional[float]
     strike_rate: Optional[float]
     career_runs: Optional[int]
@@ -67,16 +67,16 @@ class PhaseStats(BaseModel):
     economy: Optional[float] = None
 
 
-class PlayerFormComponent(BaseModel):
+class PlayerImpactComponent(BaseModel):
     score: float
     weight: float
     description: str
 
 
-class PlayerFormScore(BaseModel):
+class PlayerImpactScore(BaseModel):
     player_id: UUID
-    form_score: float
-    components: dict[str, PlayerFormComponent]
+    impact_score: float
+    components: dict[str, PlayerImpactComponent]
 
 
 class PlayerProfile(BaseModel):
@@ -89,7 +89,7 @@ class PlayerProfile(BaseModel):
     batting_style: Optional[str]
     bowling_style: Optional[str]
     bowling_type: Optional[str]
-    form_score: Optional[float]
+    impact_score: Optional[float]
     batting_rating: Optional[float]
     consistency: Optional[float]
     career_batting: Optional[PlayerBattingCareer]

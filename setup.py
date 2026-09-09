@@ -319,8 +319,25 @@ def _create_sqlite_schema(conn):
         match_situation_component REAL,
         efficiency_component REAL,
         recent_innings_count INTEGER,
+        last_match_date DATE,
         last_calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(player_id, format)
+    );
+
+    CREATE TABLE IF NOT EXISTS player_recent_stats (
+        player_id TEXT NOT NULL REFERENCES players(id),
+        format TEXT NOT NULL,
+        window_start DATE NOT NULL,
+        last_match_date DATE,
+        matches INTEGER DEFAULT 0,
+        batting_innings INTEGER DEFAULT 0,
+        runs INTEGER DEFAULT 0,
+        balls_faced INTEGER DEFAULT 0,
+        bowling_innings INTEGER DEFAULT 0,
+        wickets INTEGER DEFAULT 0,
+        balls_bowled INTEGER DEFAULT 0,
+        runs_conceded INTEGER DEFAULT 0,
+        PRIMARY KEY (player_id, format)
     );
     
     CREATE TABLE IF NOT EXISTS team_performance (

@@ -295,13 +295,14 @@ class PlayerBowlingStats(Base):
 
 
 class PlayerForm(Base):
+    """Persistence model for unified Impact Scores (legacy table name)."""
     __tablename__ = "player_form"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     player_id = Column(UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
     format = Column(String(20), nullable=False)
     
-    form_score = Column(Float, nullable=False)
+    form_score = Column(Float, nullable=False)  # Stores the public impact_score.
     recent_performance_component = Column(Float)
     consistency_component = Column(Float)
     opposition_strength_component = Column(Float)
@@ -310,11 +311,33 @@ class PlayerForm(Base):
     efficiency_component = Column(Float)
     
     recent_innings_count = Column(Integer)
+    last_match_date = Column(Date)
     last_calculated_at = Column(DateTime, default=utc_now)
     
     __table_args__ = (
         UniqueConstraint("player_id", "format"),
     )
+
+
+class PlayerRecentStats(Base):
+    """Rolling dashboard metrics derived from the latest local scorecards."""
+    __tablename__ = "player_recent_stats"
+
+    player_id = Column(
+        UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    format = Column(String(20), primary_key=True)
+    window_start = Column(Date, nullable=False)
+    last_match_date = Column(Date)
+    matches = Column(Integer, default=0)
+    batting_innings = Column(Integer, default=0)
+    runs = Column(Integer, default=0)
+    balls_faced = Column(Integer, default=0)
+    bowling_innings = Column(Integer, default=0)
+    wickets = Column(Integer, default=0)
+    balls_bowled = Column(Integer, default=0)
+    runs_conceded = Column(Integer, default=0)
 
 
 class TeamPerformance(Base):

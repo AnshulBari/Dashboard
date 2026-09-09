@@ -56,6 +56,27 @@ def _normalized_values(df: pd.DataFrame, column: str) -> pd.Series:
     )
 
 
+def deduplicate_delivery_events(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove repeated delivery events before calculating any aggregate.
+
+    Re-running an ingestion batch used to leave multiple physical rows for the
+    same ball in some historical checkpoints.  A cricket event is uniquely
+    identified by its match, innings, over, and source delivery position.
+    """
+    event_key = [
+        column
+        for column in ("match_id", "innings_number", "over_number", "ball_in_over")
+        if column in df.columns
+    ]
+    if len(event_key) != 4:
+        return df
+    duplicate_count = int(df.duplicated(event_key, keep="first").sum())
+    if duplicate_count:
+        logger.warning("Discarding %s duplicate delivery events", duplicate_count)
+        return df.drop_duplicates(event_key, keep="first").copy()
+    return df
+
+
 def _is_ball_faced(df: pd.DataFrame) -> pd.Series:
     """A batter faces a no-ball, but not a wide."""
     return _normalized_values(df, "extra_type") != "wide"
@@ -95,11 +116,15 @@ def _is_bowler_wicket(df: pd.DataFrame) -> pd.Series:
 
 
 def _is_batter_dismissal(df: pd.DataFrame) -> pd.Series:
-    """Return dismissals that count as an out in a batter's average."""
+    """Return wicket events that count as a batter dismissal.
+
+    Attribution is performed with ``dismissed_player`` below because a run-out
+    can dismiss the non-striker rather than the batter facing the delivery.
+    """
     non_dismissals = {"retired hurt", "retired not out"}
     return (
         df["is_wicket"].fillna(False).astype(bool)
-        & (df["dismissed_player"] == df["batter"])
+        & df["dismissed_player"].fillna("").astype(str).ne("")
         & ~_normalized_values(df, "wicket_type").isin(non_dismissals)
     )
 
@@ -163,6 +188,8 @@ def compute_player_batting_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     """
     logger.info("Computing player batting statistics...")
     
+    deliveries_df = deduplicate_delivery_events(deliveries_df)
+
     # Retain wide rows for team totals, but mark them as not faced by the
     # batter.  A no-ball does count as a ball faced in cricket scorecards.
     batting = deliveries_df[deliveries_df["batter"].notna() & (deliveries_df["batter"] != "")].copy()
@@ -174,20 +201,14 @@ def compute_player_batting_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     batting["is_four"] = _is_boundary(batting, 4).astype(int)
     batting["is_six"] = _is_boundary(batting, 6).astype(int)
     
-    # Determine if each delivery resulted in the batter being out
-    batting["is_dismissed"] = _is_batter_dismissal(batting)
-    
     # Group by batter and format
     grouped = batting.groupby(["batter", "format"]).agg(
         matches=("match_id", "nunique"),
-        innings=("innings_number", "count"),  # Approximate: each delivery row = part of innings
         runs=("runs_batter", "sum"),
         balls_faced=("ball_faced", "sum"),
-        highest_score=("runs_batter", "max"),  # Will be replaced with per-innings max
         fours=("is_four", "sum"),
         sixes=("is_six", "sum"),
         dot_balls=("is_dot_ball", "sum"),
-        not_outs=("is_dismissed", lambda x: (~x).sum() - 1),  # Approximate
     ).reset_index()
     
     # Calculate per-innings stats for highest score, fifties, hundreds
@@ -210,10 +231,19 @@ def compute_player_batting_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     result.drop(columns=["total_innings"], inplace=True, errors="ignore")
     
     # Not outs: innings - dismissals
-    dismissals = batting[batting["is_dismissed"]].groupby(["batter", "format"]).size().reset_index(name="dismissals")
+    dismissal_innings = batting[_is_batter_dismissal(batting)].drop_duplicates(
+        ["dismissed_player", "format", "match_id", "innings_number"]
+    )
+    dismissals = (
+        dismissal_innings.groupby(["dismissed_player", "format"])
+        .size()
+        .reset_index(name="dismissals")
+        .rename(columns={"dismissed_player": "batter"})
+    )
     result = result.merge(dismissals, on=["batter", "format"], how="left")
-    result["dismissals"] = result["dismissals"].fillna(0)
-    result["not_outs"] = result["innings"] - result["dismissals"]
+    result["dismissals"] = result["dismissals"].fillna(0).clip(lower=0)
+    result["dismissals"] = np.minimum(result["dismissals"], result["innings"])
+    result["not_outs"] = (result["innings"] - result["dismissals"]).clip(lower=0)
     
     # Derived stats
     result["batting_average"] = np.where(
@@ -236,6 +266,8 @@ def compute_player_batting_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
         np.round(result["dot_balls"] * 100.0 / result["balls_faced"], 2),
         0.0
     )
+    result["boundary_pct"] = result["boundary_pct"].clip(0, 100)
+    result["dot_ball_pct"] = result["dot_ball_pct"].clip(0, 100)
     
     # Phase-specific batting — format-aware
     # Use a unified approach: classify each delivery's phase per format
@@ -335,6 +367,7 @@ def compute_player_bowling_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     """
     logger.info("Computing player bowling statistics...")
     
+    deliveries_df = deduplicate_delivery_events(deliveries_df)
     bowling = deliveries_df[deliveries_df["bowler"].notna() & (deliveries_df["bowler"] != "")].copy()
     
     bowling["legal_ball"] = _is_legal_ball(bowling).astype(int)
@@ -389,6 +422,8 @@ def compute_player_bowling_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
         np.round(result["boundaries_conceded"] * 100.0 / result["balls_bowled"], 2),
         0.0
     )
+    result["dot_ball_pct"] = result["dot_ball_pct"].clip(0, 100)
+    result["boundary_conceded_pct"] = result["boundary_conceded_pct"].clip(0, 100)
     
     # Phase-specific bowling — format-aware
     bowling_with_phase = bowling.copy()
@@ -429,31 +464,17 @@ def compute_player_bowling_stats(deliveries_df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ============================================================
-# Player Form Score
+# Unified Player Impact Score
 # ============================================================
 
-def compute_player_form_scores(deliveries_df: pd.DataFrame) -> pd.DataFrame:
+def _compute_batting_context_components(deliveries_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Compute the Player Form Score (original metric).
-    
-    Weighted composite:
-    - Recent performance (35%)
-    - Consistency (20%)
-    - Opposition strength (15%)
-    - Venue performance (10%)
-    - Match situation (10%)
-    - Efficiency (10%)
+    Compute contextual batting inputs retained by the unified Impact model.
+
+    These normalized signals are inputs only. This helper deliberately does
+    not calculate a second batting-form headline score.
     """
-    logger.info("Computing player form scores...")
-    
-    WEIGHTS = {
-        "recent_performance": 0.35,
-        "consistency": 0.20,
-        "opposition_strength": 0.15,
-        "venue_performance": 0.10,
-        "match_situation": 0.10,
-        "efficiency": 0.10,
-    }
+    logger.info("Computing contextual batting inputs for Impact Score...")
     
     MIN_INNINGS = 3
     
@@ -577,6 +598,7 @@ def compute_player_form_scores(deliveries_df: pd.DataFrame) -> pd.DataFrame:
             "efficiency": efficiency,
             "total_innings": player_info["total_innings"],
             "recent_innings_count": len(recent),
+            "last_match_date": player_data["match_date"].max(),
         })
     
     if not results:
@@ -591,17 +613,6 @@ def compute_player_form_scores(deliveries_df: pd.DataFrame) -> pd.DataFrame:
                 "venue_performance", "match_situation", "efficiency"]:
         df[f"{col}_normalized"] = _minmax_by_format(df, col)
     
-    # Compute weighted form score
-    df["form_score"] = np.round(
-        df["recent_performance_normalized"] * WEIGHTS["recent_performance"] +
-        df["consistency_normalized"] * WEIGHTS["consistency"] +
-        df["opposition_strength_normalized"] * WEIGHTS["opposition_strength"] +
-        df["venue_performance_normalized"] * WEIGHTS["venue_performance"] +
-        df["match_situation_normalized"] * WEIGHTS["match_situation"] +
-        df["efficiency_normalized"] * WEIGHTS["efficiency"],
-        2
-    )
-    
     # Rename for DB
     df = df.rename(columns={
         "batter": "player_name",
@@ -613,8 +624,127 @@ def compute_player_form_scores(deliveries_df: pd.DataFrame) -> pd.DataFrame:
         "efficiency_normalized": "efficiency_component",
     })
     
-    logger.info(f"  Computed form scores for {len(df)} player-format combinations")
+    logger.info(f"  Computed contextual inputs for {len(df)} player-format combinations")
     return df
+
+
+def _compute_recent_impact_aggregates(
+    deliveries_df: pd.DataFrame,
+    days: int = 548,
+) -> pd.DataFrame:
+    """Build rolling batting and bowling inputs for the unified Impact model."""
+    if deliveries_df.empty or "match_date" not in deliveries_df:
+        return pd.DataFrame()
+
+    recent = deduplicate_delivery_events(deliveries_df).copy()
+    recent["_impact_date"] = pd.to_datetime(recent["match_date"], errors="coerce")
+    latest = recent["_impact_date"].max()
+    if pd.isna(latest):
+        return pd.DataFrame()
+    recent = recent[recent["_impact_date"] >= latest - pd.Timedelta(days=days)]
+
+    batting = recent[recent["batter"].notna() & (recent["batter"] != "")].copy()
+    batting["_ball_faced"] = _is_ball_faced(batting).astype(int)
+    batting_innings = batting.groupby(
+        ["batter", "format", "match_id", "innings_number"], as_index=False
+    ).agg(runs=("runs_batter", "sum"), balls_faced=("_ball_faced", "sum"))
+    batting_summary = batting_innings.groupby(["batter", "format"], as_index=False).agg(
+        batting_innings=("innings_number", "size"),
+        runs=("runs", "sum"),
+        balls_faced=("balls_faced", "sum"),
+    ).rename(columns={"batter": "player_id"})
+
+    bowling = recent[recent["bowler"].notna() & (recent["bowler"] != "")].copy()
+    bowling["_legal_ball"] = _is_legal_ball(bowling).astype(int)
+    bowling["_bowler_runs"] = _bowler_runs(bowling)
+    bowling["_bowler_wicket"] = _is_bowler_wicket(bowling).astype(int)
+    bowling_innings = bowling.groupby(
+        ["bowler", "format", "match_id", "innings_number"], as_index=False
+    ).agg(
+        wickets=("_bowler_wicket", "sum"),
+        balls_bowled=("_legal_ball", "sum"),
+        runs_conceded=("_bowler_runs", "sum"),
+    )
+    bowling_summary = bowling_innings.groupby(["bowler", "format"], as_index=False).agg(
+        bowling_innings=("innings_number", "size"),
+        wickets=("wickets", "sum"),
+        balls_bowled=("balls_bowled", "sum"),
+        runs_conceded=("runs_conceded", "sum"),
+    ).rename(columns={"bowler": "player_id"})
+
+    batting_activity = batting[["batter", "format", "match_id", "_impact_date"]].rename(
+        columns={"batter": "player_id"}
+    )
+    bowling_activity = bowling[["bowler", "format", "match_id", "_impact_date"]].rename(
+        columns={"bowler": "player_id"}
+    )
+    activity = pd.concat([batting_activity, bowling_activity], ignore_index=True).drop_duplicates(
+        ["player_id", "format", "match_id"]
+    ).groupby(["player_id", "format"], as_index=False).agg(
+        matches=("match_id", "nunique"), last_match_date=("_impact_date", "max")
+    )
+
+    result = activity.merge(batting_summary, on=["player_id", "format"], how="left")
+    result = result.merge(bowling_summary, on=["player_id", "format"], how="left")
+    numeric = [
+        "batting_innings", "runs", "balls_faced", "bowling_innings",
+        "wickets", "balls_bowled", "runs_conceded",
+    ]
+    result[numeric] = result[numeric].fillna(0)
+    result["last_match_date"] = result["last_match_date"].dt.date
+    return result
+
+
+def compute_player_impact_scores(
+    deliveries_df: pd.DataFrame,
+    batting_stats: pd.DataFrame | None = None,
+    bowling_stats: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Compute the role-aware 0-100 Impact Score used by every public surface.
+
+    The legacy ``player_form`` table and its column names remain the persistence
+    contract for existing databases. They store the unified score and its new
+    semantic components; ``form_score`` is not a separate metric.
+    """
+    from data_pipeline.pipeline.impact import compute_impact_scores_from_aggregates
+
+    batting = batting_stats if batting_stats is not None else compute_player_batting_stats(deliveries_df)
+    bowling = bowling_stats if bowling_stats is not None else compute_player_bowling_stats(deliveries_df)
+    context = _compute_batting_context_components(deliveries_df)
+    recent = _compute_recent_impact_aggregates(deliveries_df)
+
+    def use_key(frame: pd.DataFrame) -> pd.DataFrame:
+        if frame.empty:
+            return frame
+        return frame.rename(columns={"player_name": "player_id"})
+
+    impact = compute_impact_scores_from_aggregates(
+        use_key(context), use_key(batting), use_key(bowling), recent
+    )
+    if impact.empty:
+        return impact
+
+    # Map the public model to the established storage schema. Public APIs alias
+    # these fields back to their Impact terminology.
+    impact = impact.rename(columns={
+        "player_id": "player_name",
+        "impact_score": "form_score",
+        "recent_form_component": "recent_performance_component",
+        "performance_impact_component": "venue_performance_component",
+        "pressure_impact_component": "match_situation_component",
+        "opposition_quality_component": "opposition_strength_component",
+    })
+    logger.info(f"  Computed unified Impact Scores for {len(impact)} player-format combinations")
+    return impact
+
+
+def compute_player_form_scores(
+    deliveries_df: pd.DataFrame,
+    batting_stats: pd.DataFrame | None = None,
+    bowling_stats: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Backward-compatible internal alias for :func:`compute_player_impact_scores`."""
+    return compute_player_impact_scores(deliveries_df, batting_stats, bowling_stats)
 
 
 # ============================================================
@@ -940,6 +1070,7 @@ def compute_matchups(deliveries_df: pd.DataFrame, min_balls: int = 10) -> pd.Dat
     """
     logger.info("Computing batter-bowler matchups...")
     
+    deliveries_df = deduplicate_delivery_events(deliveries_df)
     valid = deliveries_df[
         deliveries_df["batter"].notna() & 
         deliveries_df["bowler"].notna() &

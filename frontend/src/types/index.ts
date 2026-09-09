@@ -15,7 +15,7 @@ export interface Player {
 }
 
 export interface PlayerSummary extends Player {
-  formScore?: number
+  impactScore?: number
   battingRating?: number
   consistency?: number
   careerRuns?: number
@@ -72,15 +72,15 @@ export interface PhaseStats {
   economy?: number
 }
 
-export interface PlayerFormScore {
+export interface PlayerImpactScore {
   playerId: string
-  formScore: number
+  impactScore: number
   components: {
-    recentPerformance: { score: number; weight: number }
+    performanceImpact: { score: number; weight: number }
+    recentForm: { score: number; weight: number }
+    pressureImpact: { score: number; weight: number }
+    oppositionQuality: { score: number; weight: number }
     consistency: { score: number; weight: number }
-    oppositionStrength: { score: number; weight: number }
-    venuePerformance: { score: number; weight: number }
-    matchSituation: { score: number; weight: number }
     efficiency: { score: number; weight: number }
   }
 }

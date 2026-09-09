@@ -91,6 +91,7 @@ class DatabaseManager:
             conn = self.engine.raw_connection()
             try:
                 _create_sqlite_schema(conn)
+                self._ensure_sqlite_analytics_columns(conn)
                 conn.commit()
             finally:
                 conn.close()
@@ -120,6 +121,74 @@ class DatabaseManager:
                         logger.warning("schema.sql not found, skipping")
         
         logger.info("Schema created/verified")
+
+    @staticmethod
+    def _ensure_sqlite_analytics_columns(conn):
+        """Bring older checked-in SQLite snapshots up to the current schema.
+
+        SQLite's ``CREATE TABLE IF NOT EXISTS`` does not add columns introduced
+        after a database was created. The analytics writer must therefore apply
+        these additive migrations before a full-format rebuild.
+        """
+        required = {
+            "player_bowling_stats": {
+                "maidens": "INTEGER DEFAULT 0",
+                "best_bowling": "TEXT",
+                "four_wickets": "INTEGER DEFAULT 0",
+                "five_wickets": "INTEGER DEFAULT 0",
+            },
+            "team_performance": {
+                "ties": "INTEGER DEFAULT 0",
+                "no_results": "INTEGER DEFAULT 0",
+                "avg_total_score": "REAL",
+                "avg_runs_conceded_per_innings": "REAL",
+                "avg_wickets_per_innings": "REAL",
+                "avg_powerplay_economy": "REAL",
+                "avg_middle_economy": "REAL",
+                "avg_death_economy": "REAL",
+            },
+            "player_form": {
+                "last_match_date": "DATE",
+            },
+        }
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """CREATE TABLE IF NOT EXISTS player_name_mappings (
+                    id TEXT PRIMARY KEY,
+                    player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+                    source TEXT NOT NULL,
+                    source_id TEXT,
+                    name_variant TEXT NOT NULL,
+                    confidence REAL DEFAULT 1.0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(source, name_variant)
+                )"""
+            )
+            cursor.execute(
+                """CREATE TABLE IF NOT EXISTS player_recent_stats (
+                    player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+                    format TEXT NOT NULL,
+                    window_start DATE NOT NULL,
+                    last_match_date DATE,
+                    matches INTEGER DEFAULT 0,
+                    batting_innings INTEGER DEFAULT 0,
+                    runs INTEGER DEFAULT 0,
+                    balls_faced INTEGER DEFAULT 0,
+                    bowling_innings INTEGER DEFAULT 0,
+                    wickets INTEGER DEFAULT 0,
+                    balls_bowled INTEGER DEFAULT 0,
+                    runs_conceded INTEGER DEFAULT 0,
+                    PRIMARY KEY (player_id, format)
+                )"""
+            )
+            for table, columns in required.items():
+                existing = {row[1] for row in cursor.execute(f"PRAGMA table_info({table})")}
+                for name, declaration in columns.items():
+                    if name not in existing:
+                        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
+        finally:
+            cursor.close()
     
     def _load_existing_ids(self):
         """Load existing entity IDs from the database."""
@@ -295,6 +364,85 @@ class DatabaseManager:
         self._player_names[player_id] = lookup_name
         
         return player_id
+
+    def register_player_aliases(self, aliases: dict[str, str]) -> int:
+        """Persist source aliases and attach them to canonical player IDs."""
+        registered = 0
+        with self.engine.connect() as conn:
+            for alias, canonical in aliases.items():
+                player_id = self._player_ids.get(canonical)
+                if not player_id:
+                    continue
+
+                existing = conn.execute(
+                    text(
+                        "SELECT id FROM player_name_mappings "
+                        "WHERE source = :source AND name_variant = :alias"
+                    ),
+                    {"source": "cricsheet", "alias": alias},
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        text("UPDATE player_name_mappings SET player_id = :pid WHERE id = :id"),
+                        {"pid": player_id, "id": existing[0]},
+                    )
+                else:
+                    conn.execute(
+                        text(
+                            "INSERT INTO player_name_mappings "
+                            "(id, player_id, source, name_variant, confidence) "
+                            "VALUES (:id, :pid, :source, :alias, :confidence)"
+                        ),
+                        {
+                            "id": self._new_id(),
+                            "pid": player_id,
+                            "source": "cricsheet",
+                            "alias": alias,
+                            "confidence": 1.0,
+                        },
+                    )
+                self._player_name_mappings[alias] = canonical
+                self._player_ids[alias] = player_id
+                registered += 1
+            conn.commit()
+        logger.info(f"  Registered {registered} canonical player aliases")
+        return registered
+
+    def sync_primary_national_teams(self) -> int:
+        """Set each player's canonical team to their strongest national link.
+
+        Domestic franchises remain in ``player_team_affiliations`` and are
+        selected by format at presentation time. This prevents a temporary
+        club from becoming the team shown throughout international views.
+        """
+        with self.engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT pta.player_id, pta.team_id,
+                       COUNT(DISTINCT pta.format) AS format_count,
+                       COUNT(*) AS affiliation_count,
+                       CASE WHEN p.team_id = pta.team_id THEN 1 ELSE 0 END AS existing_primary,
+                       t.canonical_name
+                FROM player_team_affiliations pta
+                JOIN players p ON p.id = pta.player_id
+                JOIN teams t ON t.id = pta.team_id
+                WHERE pta.format IN ('T20I', 'ODI', 'Test')
+                GROUP BY pta.player_id, pta.team_id, p.team_id, t.canonical_name
+                ORDER BY pta.player_id, format_count DESC, affiliation_count DESC,
+                         existing_primary DESC, t.canonical_name
+            """)).fetchall()
+
+            selected = {}
+            for row in rows:
+                selected.setdefault(str(row[0]), str(row[1]))
+            for player_id, team_id in selected.items():
+                conn.execute(
+                    text("UPDATE players SET team_id = :team_id WHERE id = :player_id"),
+                    {"team_id": team_id, "player_id": player_id},
+                )
+            conn.commit()
+
+        logger.info(f"  Synced {len(selected)} players to primary national teams")
+        return len(selected)
     
     def resolve_venue(self, name: str, city: str = "", country: str = "") -> str:
         """Get or create a venue, returning its UUID."""
@@ -339,8 +487,12 @@ class DatabaseManager:
         self._competition_ids[name] = comp_id
         return comp_id
     
-    def resolve_season(self, competition_id: str, season_name: str) -> str:
-        """Get or create a season/edition for a competition."""
+    def resolve_season(self, competition_id: str, season_name: str, conn=None) -> str:
+        """Get or create a season/edition for a competition.
+
+        When called inside a larger SQLite write transaction, reuse that
+        connection so a nested writer cannot deadlock the database.
+        """
         cache_key = f"{competition_id}:{season_name}"
         if hasattr(self, '_season_ids') and cache_key in self._season_ids:
             return self._season_ids[cache_key]
@@ -348,26 +500,28 @@ class DatabaseManager:
         if not hasattr(self, '_season_ids'):
             self._season_ids = {}
         
-        # Check if season already exists (by competition_id + name)
-        with self.engine.connect() as conn:
-            row = conn.execute(text(
+        def _resolve(active_conn):
+            row = active_conn.execute(text(
                 "SELECT id FROM seasons WHERE competition_id = :cid AND name = :name"
             ), {"cid": competition_id, "name": season_name}).fetchone()
             if row:
                 self._season_ids[cache_key] = str(row[0])
                 return str(row[0])
-        
-        season_id = self._new_id()
-        
-        with self.engine.connect() as conn:
-            conn.execute(
+
+            season_id = self._new_id()
+            active_conn.execute(
                 text(self._upsert_sql("seasons", "id", ["competition_id", "name"])),
                 {"id": season_id, "competition_id": competition_id, "name": season_name}
             )
-            conn.commit()
-        
-        self._season_ids[cache_key] = season_id
-        return season_id
+            self._season_ids[cache_key] = season_id
+            return season_id
+
+        if conn is not None:
+            return _resolve(conn)
+        with self.engine.connect() as active_conn:
+            season_id = _resolve(active_conn)
+            active_conn.commit()
+            return season_id
     
     def _normalize_team_name(self, name: str) -> tuple[str, str]:
         """Normalize a team name to (canonical_name, short_name)."""
@@ -527,7 +681,7 @@ class DatabaseManager:
                             season_name = str(match_date_tmp.year)
                         else:
                             season_name = str(match_date_tmp)[:4]
-                        season_id = self.resolve_season(comp_id, season_name)
+                        season_id = self.resolve_season(comp_id, season_name, conn=conn)
                 
                 # Parse date
                 match_date = row.get("match_date")

@@ -181,7 +181,7 @@ Scoped by `(player_id, format, period)`. Contains career and phase-specific bowl
 
 ### player_form
 
-Scoped by `(player_id, format)`. Contains the original Player Form Score.
+Scoped by `(player_id, format)`. Stores the unified Player Impact Score. The table and `form_score` column retain legacy names for database compatibility; APIs expose `impact_score`.
 
 ### team_performance
 
@@ -210,7 +210,7 @@ Key indexes for common query patterns:
 - `idx_tp_team` / `idx_tp_format_period` — team performance
 - `idx_bbm_batter` / `idx_bbm_bowler` — matchup queries
 - `idx_matches_date` / `idx_matches_format` — match filtering
-- `idx_pform_score` — form score leaderboard
+- `idx_pform_score` — Impact Score leaderboard (legacy index name)
 
 ## Current Data (IPL)
 

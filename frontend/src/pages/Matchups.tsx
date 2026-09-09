@@ -4,6 +4,7 @@ import { useMatchupList } from '@/hooks/useQueries'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import ErrorCard from '@/components/ui/ErrorCard'
 import EmptyState from '@/components/ui/EmptyState'
+import PlayerPortrait from '@/components/ui/PlayerPortrait'
 
 interface PageContext {
   format: string
@@ -12,7 +13,7 @@ interface PageContext {
 export default function Matchups() {
   const { format } = useOutletContext<PageContext>()
   const { data, isLoading, isError, refetch } = useMatchupList({ 
-    format: format === 'All' ? 'T20' : format, 
+    format,
     limit: 25 
   })
 
@@ -23,7 +24,7 @@ export default function Matchups() {
       <div className="page-header">
         <h1 className="page-title">Matchups</h1>
         <p className="page-subtitle">
-          Batter vs bowler analytics · {format === 'All' ? 'T20' : format}
+          Batter vs bowler analytics · {format === 'International' ? 'T20I + ODI + Test' : format}
         </p>
       </div>
 
@@ -74,8 +75,8 @@ export default function Matchups() {
               <tbody>
                 {matchups.map((m, idx) => (
                   <tr key={idx}>
-                    <td className="font-medium text-gray-200">{m.batter_name}</td>
-                    <td className="text-gray-400">{m.bowler_name}</td>
+                    <td className="font-medium text-gray-200"><span className="flex items-center gap-2"><PlayerPortrait name={m.batter_name} imageUrl={m.batter_image_url} size="xs" />{m.batter_name}</span></td>
+                    <td className="text-gray-400"><span className="flex items-center gap-2"><PlayerPortrait name={m.bowler_name} imageUrl={m.bowler_image_url} size="xs" />{m.bowler_name}</span></td>
                     <td className="text-right font-mono text-gray-300">{m.total_balls}</td>
                     <td className="text-right font-mono font-bold text-gray-100">{m.total_runs}</td>
                     <td className="text-right font-mono text-gray-300">{m.total_wickets}</td>

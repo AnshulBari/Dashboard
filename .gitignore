@@ -12,6 +12,8 @@ data/processed/*
 data/analytics/*
 data/*.db-shm
 data/*.db-wal
+data/*.pre-international-restore.db
+data/cricket_intelligence.pre-*.db
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/analytics/.gitkeep

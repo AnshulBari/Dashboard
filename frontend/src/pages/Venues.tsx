@@ -9,7 +9,7 @@ interface PageContext { format: string }
 
 export default function Venues() {
   const { format } = useOutletContext<PageContext>()
-  const venues = useVenueList({ format: format === 'All' ? undefined : format, limit: 100 })
+  const venues = useVenueList({ format, limit: 100 })
 
   return (
     <div className="space-y-5">
@@ -19,7 +19,7 @@ export default function Venues() {
           Venues
         </h1>
         <p className="page-subtitle">
-          {venues.data?.venues?.length || '—'} venues · {format === 'All' ? 'All formats' : format}
+          {venues.data?.venues?.length || '—'} venues · {format === 'International' ? 'T20I + ODI + Test' : format}
         </p>
       </div>
 

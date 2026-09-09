@@ -15,7 +15,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from backend.utils.database import get_db, engine
-from backend.utils.validation import validate_format, VALID_FORMATS
+from backend.utils.stat_invariants import safe_not_outs_sql, sanitize_stat_record
+from backend.utils.validation import format_scope_clause, validate_format, VALID_FORMATS
 from backend.services.rankings import RankingsService
 from backend.providers.cricketdata import CricketDataProvider
 
@@ -33,7 +34,10 @@ _rankings_service = RankingsService(
 def _row_to_dict(row) -> dict:
     if row is None:
         return None
-    return dict(row._mapping)
+    return sanitize_stat_record(dict(row._mapping))
+
+
+SAFE_NOT_OUTS_SQL = safe_not_outs_sql()
 
 
 # ============================================================
@@ -43,7 +47,7 @@ def _row_to_dict(row) -> dict:
 
 @router.get("/platform")
 async def get_platform_rankings(
-    format: str = Query("T20"),
+    format: str = Query("International"),
     category: str = Query("batting", description="batting, bowling, allrounder"),
     limit: int = Query(25, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -53,7 +57,12 @@ async def get_platform_rankings(
 
     These are derived from the platform's own statistical analysis.
     """
-    target_format = validate_format(format or "T20")
+    target_format, batting_filter, params = format_scope_clause("format", format)
+    _, bowling_filter, bowling_params = format_scope_clause("format", format)
+    _, form_filter, form_params = format_scope_clause("format", format)
+    params.update(bowling_params)
+    params.update(form_params)
+    params["limit"] = limit
     if category not in {"batting", "bowling", "allrounder"}:
         raise HTTPException(
             status_code=400,
@@ -62,82 +71,127 @@ async def get_platform_rankings(
 
     if category == "batting":
         rows = db.execute(
-            text("""
+            text(f"""
+                WITH pbs AS (
+                    SELECT player_id, SUM(runs) AS runs, SUM(innings) AS innings,
+                        SUM(fifties) AS fifties, SUM(hundreds) AS hundreds,
+                        ROUND(1.0 * SUM(runs) / NULLIF(SUM(innings) - ({SAFE_NOT_OUTS_SQL}), 0), 2) AS batting_average,
+                        ROUND(100.0 * SUM(runs) / NULLIF(SUM(balls_faced), 0), 2) AS strike_rate
+                    FROM player_batting_stats WHERE {batting_filter} AND period = 'career' GROUP BY player_id
+                ),
+                pf AS (
+                    SELECT player_id,
+                        ROUND(SUM(form_score * COALESCE(NULLIF(recent_innings_count, 0), 1)) /
+                              NULLIF(SUM(COALESCE(NULLIF(recent_innings_count, 0), 1)), 0), 2) AS impact_score
+                    FROM player_form WHERE {form_filter} GROUP BY player_id
+                )
                 SELECT
                     p.id, p.canonical_name AS name, p.country,
                     t.short_name AS team,
                     pbs.runs, pbs.batting_average, pbs.strike_rate,
                     pbs.innings, pbs.fifties, pbs.hundreds,
-                    pf.form_score,
+                    pf.impact_score,
                     ROUND(
                         COALESCE(pbs.batting_average, 0) * 0.4 +
                         COALESCE(pbs.strike_rate, 0) * 0.3 +
-                        COALESCE(pf.form_score, 50) * 0.3
+                        COALESCE(pf.impact_score, 50) * 0.3
                     , 2) AS rating
                 FROM players p
                 LEFT JOIN teams t ON p.team_id = t.id
-                LEFT JOIN player_batting_stats pbs ON p.id = pbs.player_id AND pbs.format = :fmt AND pbs.period = 'career'
-                LEFT JOIN player_form pf ON p.id = pf.player_id AND pf.format = :fmt
+                LEFT JOIN pbs ON p.id = pbs.player_id
+                LEFT JOIN pf ON p.id = pf.player_id
                 WHERE p.role IN ('batsman', 'allrounder', 'wicketkeeper')
                     AND p.is_active = true
                     AND pbs.innings >= 5
                 ORDER BY rating DESC NULLS LAST
                 LIMIT :limit
             """),
-            {"fmt": target_format, "limit": limit}
+            params
         ).fetchall()
 
     elif category == "bowling":
         rows = db.execute(
-            text("""
+            text(f"""
+                WITH pws AS (
+                    SELECT player_id, SUM(wickets) AS wickets, SUM(innings) AS innings,
+                        ROUND(6.0 * SUM(runs_conceded) / NULLIF(SUM(balls_bowled), 0), 2) AS economy,
+                        ROUND(1.0 * SUM(runs_conceded) / NULLIF(SUM(wickets), 0), 2) AS bowling_average,
+                        ROUND(1.0 * SUM(balls_bowled) / NULLIF(SUM(wickets), 0), 2) AS strike_rate
+                    FROM player_bowling_stats WHERE {bowling_filter} AND period = 'career' GROUP BY player_id
+                ),
+                pf AS (
+                    SELECT player_id,
+                        ROUND(SUM(form_score * COALESCE(NULLIF(recent_innings_count, 0), 1)) /
+                              NULLIF(SUM(COALESCE(NULLIF(recent_innings_count, 0), 1)), 0), 2) AS impact_score
+                    FROM player_form WHERE {form_filter} GROUP BY player_id
+                )
                 SELECT
                     p.id, p.canonical_name AS name, p.country,
                     t.short_name AS team,
                     pws.wickets, pws.economy, pws.bowling_average, pws.strike_rate,
-                    pws.innings,
+                    pws.innings, pf.impact_score,
                     ROUND(
                         COALESCE(pws.wickets, 0) * 0.3 +
-                        (10 - CASE WHEN COALESCE(pws.economy, 15) < 10 THEN COALESCE(pws.economy, 15) ELSE 10 END) * 10 * 0.4 +
-                        COALESCE(30 - CASE WHEN COALESCE(pws.bowling_average, 60) < 30 THEN COALESCE(pws.bowling_average, 60) ELSE 30 END, 0) * 0.3
+                        (10 - CASE WHEN COALESCE(pws.economy, 15) < 10 THEN COALESCE(pws.economy, 15) ELSE 10 END) * 10 * 0.25 +
+                        COALESCE(30 - CASE WHEN COALESCE(pws.bowling_average, 60) < 30 THEN COALESCE(pws.bowling_average, 60) ELSE 30 END, 0) * 0.15 +
+                        COALESCE(pf.impact_score, 50) * 0.3
                     , 2) AS rating
                 FROM players p
                 LEFT JOIN teams t ON p.team_id = t.id
-                LEFT JOIN player_bowling_stats pws ON p.id = pws.player_id AND pws.format = :fmt AND pws.period = 'career'
+                LEFT JOIN pws ON p.id = pws.player_id
+                LEFT JOIN pf ON p.id = pf.player_id
                 WHERE p.role IN ('bowler', 'allrounder')
                     AND p.is_active = true
                     AND pws.innings >= 5
                 ORDER BY rating DESC NULLS LAST
                 LIMIT :limit
             """),
-            {"fmt": target_format, "limit": limit}
+            params
         ).fetchall()
 
     else:  # allrounder
         rows = db.execute(
-            text("""
+            text(f"""
+                WITH pbs AS (
+                    SELECT player_id, SUM(runs) AS runs,
+                        ROUND(1.0 * SUM(runs) / NULLIF(SUM(innings) - ({SAFE_NOT_OUTS_SQL}), 0), 2) AS batting_average,
+                        ROUND(100.0 * SUM(runs) / NULLIF(SUM(balls_faced), 0), 2) AS strike_rate
+                    FROM player_batting_stats WHERE {batting_filter} AND period = 'career' GROUP BY player_id
+                ),
+                pws AS (
+                    SELECT player_id, SUM(wickets) AS wickets,
+                        ROUND(6.0 * SUM(runs_conceded) / NULLIF(SUM(balls_bowled), 0), 2) AS economy
+                    FROM player_bowling_stats WHERE {bowling_filter} AND period = 'career' GROUP BY player_id
+                ),
+                pf AS (
+                    SELECT player_id,
+                        ROUND(SUM(form_score * COALESCE(NULLIF(recent_innings_count, 0), 1)) /
+                              NULLIF(SUM(COALESCE(NULLIF(recent_innings_count, 0), 1)), 0), 2) AS impact_score
+                    FROM player_form WHERE {form_filter} GROUP BY player_id
+                )
                 SELECT
                     p.id, p.canonical_name AS name, p.country,
                     t.short_name AS team,
                     pbs.runs, pbs.batting_average, pbs.strike_rate,
                     pws.wickets, pws.economy,
-                    pf.form_score,
+                    pf.impact_score,
                     ROUND(
                         COALESCE(pbs.batting_average, 0) * 0.25 +
                         COALESCE(pbs.strike_rate, 0) * 0.15 +
                         COALESCE(pws.wickets, 0) * 0.3 +
-                        COALESCE(pf.form_score, 50) * 0.3
+                        COALESCE(pf.impact_score, 50) * 0.3
                     , 2) AS rating
                 FROM players p
                 LEFT JOIN teams t ON p.team_id = t.id
-                LEFT JOIN player_batting_stats pbs ON p.id = pbs.player_id AND pbs.format = :fmt AND pbs.period = 'career'
-                LEFT JOIN player_bowling_stats pws ON p.id = pws.player_id AND pws.format = :fmt AND pws.period = 'career'
-                LEFT JOIN player_form pf ON p.id = pf.player_id AND pf.format = :fmt
+                LEFT JOIN pbs ON p.id = pbs.player_id
+                LEFT JOIN pws ON p.id = pws.player_id
+                LEFT JOIN pf ON p.id = pf.player_id
                 WHERE p.role = 'allrounder'
                     AND p.is_active = true
                 ORDER BY rating DESC NULLS LAST
                 LIMIT :limit
             """),
-            {"fmt": target_format, "limit": limit}
+            params
         ).fetchall()
 
     rankings = []
@@ -207,7 +261,7 @@ async def get_icc_rankings(
 
 @router.get("/")
 async def get_rankings(
-    format: str = Query("T20"),
+    format: str = Query("International"),
     category: str = Query("batting", description="batting, bowling, allrounder"),
     limit: int = Query(25, ge=1, le=100),
     source: str = Query("platform", description="platform or icc"),

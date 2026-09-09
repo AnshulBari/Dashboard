@@ -237,12 +237,43 @@ def compute_player_innings_stats(deliveries_df: DataFrame) -> DataFrame:
         F.sum(F.when(_ball_faced(), 1).otherwise(0)).alias("balls_faced"),
         F.sum("runs_batter").alias("runs"),
         F.sum("runs_total").alias("total_runs_with_extras"),
-        F.sum(F.when(_batter_out(), 1).otherwise(0)).alias("is_out"),
         F.sum(F.when(_ball_faced() & (F.col("runs_total") == 0), 1).otherwise(0)).alias("dot_balls"),
         F.sum(F.when((F.col("runs_batter") == 4) & ~F.col("non_boundary"), 1).otherwise(0)).alias("fours"),
         F.sum(F.when((F.col("runs_batter") == 6) & ~F.col("non_boundary"), 1).otherwise(0)).alias("sixes"),
         F.first("format").alias("format"),
         F.first("innings_idx").alias("innings_number"),
+    )
+
+    # A run-out may dismiss the non-striker, so attributing dismissals only on
+    # rows where the dismissed player is also the current batter is incorrect.
+    dismissal_kind = F.lower(
+        F.regexp_replace(F.coalesce(F.col("wicket_kind"), F.lit("")), "_", " ")
+    )
+    dismissals = (
+        deliveries_df
+        .filter(
+            F.col("is_wicket")
+            & F.col("wicket_player").isNotNull()
+            & ~dismissal_kind.isin("retired hurt", "retired not out")
+        )
+        .select(
+            "match_id", "innings_id",
+            F.col("wicket_player").alias("dismissed_batter"),
+        )
+        .dropDuplicates(["match_id", "innings_id", "dismissed_batter"])
+        .withColumn("dismissed", F.lit(1))
+    )
+    batting_df = (
+        batting_df.join(
+            dismissals,
+            (batting_df.match_id == dismissals.match_id)
+            & (batting_df.innings_id == dismissals.innings_id)
+            & (batting_df.batter == dismissals.dismissed_batter),
+            "left",
+        )
+        .drop(dismissals.match_id, dismissals.innings_id, "dismissed_batter")
+        .withColumn("is_out", F.coalesce(F.col("dismissed"), F.lit(0)))
+        .drop("dismissed")
     )
     
     # Compute derived stats

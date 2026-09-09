@@ -90,7 +90,7 @@ PySpark code is preserved in `data_pipeline/spark/` as a reference implementatio
 4. Validate data quality (reject malformed records)
 5. Resolve entities (discover teams, players, venues from data → UUIDs)
 6. Write core data (matches, innings, deliveries with FK-resolved UUIDs)
-7. Compute analytics (batting stats, bowling stats, form scores, matchups)
+7. Compute analytics (batting stats, bowling stats, unified Impact Scores, matchups)
 8. Write analytics to database (truncate-then-insert for analytical tables)
 9. Report summary statistics
 ```
@@ -164,7 +164,7 @@ The resolution process:
 |-------|---------------|-------------|
 | `player_batting_stats` | 738 | Career batting stats by player/format |
 | `player_bowling_stats` | 577 | Career bowling stats by player/format |
-| `player_form` | 571 | Weighted composite form score (0–100) |
+| `player_form` | 571 | Unified Impact Score (0–100; legacy physical table name) |
 | `team_performance` | 15 | Win rates, strength scores by format |
 | `venue_stats` | 50 | Average scores, phase-wise stats |
 | `batter_bowler_matchups` | 9,502 | Head-to-head statistics |

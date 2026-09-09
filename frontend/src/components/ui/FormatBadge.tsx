@@ -1,4 +1,6 @@
 const FORMAT_STYLES: Record<string, string> = {
+  International: 'badge-odi',
+  INTL: 'badge-odi',
   T20: 'badge-t20',
   T20I: 'badge-t20i',
   ODI: 'badge-odi',

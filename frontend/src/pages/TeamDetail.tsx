@@ -1,14 +1,16 @@
-import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Shield, TrendingUp, Activity } from 'lucide-react'
+import { useParams, Link, useOutletContext } from 'react-router-dom'
+import { ArrowLeft, TrendingUp, Activity } from 'lucide-react'
 import { useTeam, useTeamAnalytics } from '@/hooks/useQueries'
 import { SkeletonCard, Skeleton } from '@/components/ui/Skeleton'
 import ErrorCard from '@/components/ui/ErrorCard'
 import EmptyState from '@/components/ui/EmptyState'
+import CountryFlag from '@/components/ui/CountryFlag'
 
 export default function TeamDetail() {
   const { id } = useParams()
-  const { data: team, isLoading: teamLoading, isError: teamError, refetch: refetchTeam } = useTeam(id || '')
-  const { data: analytics, isLoading: analyticsLoading } = useTeamAnalytics(id || '')
+  const { format } = useOutletContext<{ format: string }>()
+  const { data: team, isLoading: teamLoading, isError: teamError, refetch: refetchTeam } = useTeam(id || '', format)
+  const { data: analytics, isLoading: analyticsLoading } = useTeamAnalytics(id || '', format)
 
   const isLoading = teamLoading || analyticsLoading
 
@@ -58,9 +60,7 @@ export default function TeamDetail() {
       <div className="card p-5">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-brand-500/15 border border-brand-500/30 flex items-center justify-center">
-              <Shield className="h-6 w-6 text-brand-400" />
-            </div>
+            <CountryFlag team={team.name} size="lg" />
             <div>
               <h1 className="text-2xl font-bold text-gray-100">{team.name}</h1>
               <p className="text-sm text-gray-500">

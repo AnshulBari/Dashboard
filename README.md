@@ -1,6 +1,6 @@
 # 🏏 Cricket Intelligence Platform
 
-> A data engineering and analytics platform that transforms raw historical cricket ball-by-ball data into actionable intelligence — player form, team strength, venue profiles, batter-bowler matchups, and platform-computed rankings.
+> A data engineering and analytics platform that transforms raw historical cricket ball-by-ball data into actionable intelligence — player impact, team strength, venue profiles, batter-bowler matchups, and platform-computed rankings.
 
 **This is NOT a cricket score website.** It is a portfolio-grade data engineering project demonstrating end-to-end pipeline design, analytical computing, and full-stack visualization.
 
@@ -66,11 +66,11 @@ The platform ingests **ball-by-ball cricket data** from [Cricsheet](https://cric
 | **Team Intelligence** | Which teams are strongest in particular phases? Which teams chase best? How does a team's bowling economy compare? |
 | **Venue Intelligence** | Which venues favor batting? Which venues have a high chasing win rate? What is the average first innings score? |
 | **Matchup Analytics** | Which batters dominate a specific bowler? How does a batter perform against pace vs spin? |
-| **Rankings** | Who are the top 10 batters by form score? Who are the leading wicket-takers? |
+| **Rankings** | Who are the highest-impact players? Who are the leading wicket-takers? |
 
 ### Key analytical metrics
 
-- **Player Form Score** — Original weighted composite metric (0–100) across six normalized components
+- **Player Impact Score** — Role-aware 0–100 metric combining sustained contribution with recent form and match context
 - **Team Strength Score** — Explainable composite of batting strength, bowling strength, and win rate
 - **Batter-Bowler Matchups** — Head-to-head statistics derived from actual ball-by-ball data
 - **Phase-Specific Performance** — Powerplay, middle overs, and death overs breakdowns
@@ -252,7 +252,7 @@ Using the delivery-level data, the pipeline computes:
 - Economy, bowling average, strike rate, dot ball %
 - Phase-specific: powerplay/middle/death overs, wickets, economy
 
-**Player Form Score** — Weighted composite metric (see [Analytics Methodology](#analytics-methodology))
+**Player Impact Score** — Role-aware composite metric (see [Analytics Methodology](#analytics-methodology))
 
 **Team Performance** — Grouped by (team, format):
 - Wins, losses, win rate, average scores by phase
@@ -274,7 +274,7 @@ Using the delivery-level data, the pipeline computes:
 The FastAPI backend exposes REST endpoints that query the precomputed analytics:
 
 ```
-GET /api/players?format=T20&sort_by=form_score&limit=10
+GET /api/players?format=T20I&sort_by=impact_score&limit=10
 GET /api/players/{id}?format=T20
 GET /api/teams?format=T20
 GET /api/venues?format=T20
@@ -287,8 +287,8 @@ GET /api/matchups/{batter_id}/{bowler_id}
 
 The React dashboard displays the data through:
 - **Dashboard** — Overview with stat cards, trending players table, team rankings, recent matches, venue insights
-- **Players** — Searchable player list with form scores, filterable by role/country
-- **Player Detail** — Full player profile with batting stats, bowling stats, form breakdown
+- **Players** — Searchable player list with Impact Scores, filterable by role/country
+- **Player Detail** — Full player profile with batting stats, bowling stats, and Impact breakdown
 - **Teams** — Team strength rankings with win rates
 - **Venues** — Venue profiles with scoring averages
 - **Matchups** — Head-to-head batter vs bowler explorer
@@ -398,7 +398,7 @@ cricket-intelligence/
 │   │   └── matchup_stats.py           # Batter vs bowler matchups
 │   │
 │   ├── analytics/
-│   │   └── form_score.py              # PySpark form score (reference)
+│   │   └── form_score.py              # Legacy PySpark scoring reference
 │   │
 │   ├── database/
 │   │   ├── writer.py                  # Spark DataFrame → PostgreSQL writer
@@ -468,7 +468,7 @@ python -m data_pipeline.pipeline.run --format ipl
 This creates `data/cricket_intelligence.db` with real IPL data:
 - 1,243 matches, 295,732 deliveries
 - 807 players, 15 teams, 50 venues
-- Precomputed batting/bowling stats, form scores, matchups
+- Precomputed batting/bowling stats, unified Impact Scores, matchups
 
 ### 3. Start the Backend API
 
@@ -561,7 +561,7 @@ Stage 2: READ     → Parse JSON into flat delivery-level DataFrame
 Stage 3: VALIDATE → Check data quality, reject malformed records
 Stage 4: RESOLVE  → Discover entities, map names to UUIDs, infer player roles
 Stage 5: WRITE    → Write teams, players, venues, matches, innings, deliveries
-Stage 6: COMPUTE  → Calculate player stats, team stats, venue stats, matchups, form scores
+Stage 6: COMPUTE  → Calculate player stats, team stats, venue stats, matchups, Impact Scores
 Stage 7: WRITE    → Write analytical results to database
 Stage 8: REPORT   → Print summary statistics
 ```
@@ -645,7 +645,7 @@ http://localhost:8000
 |--------|----------|-------------|
 | GET | `/api/players` | List players with filtering and sorting |
 | GET | `/api/players/{id}` | Get detailed player profile |
-| GET | `/api/players/{id}/form` | Get form score with component breakdown |
+| GET | `/api/players/{id}/impact` | Get Impact Score with component breakdown |
 | GET | `/api/players/{id}/batting` | Get batting statistics |
 | GET | `/api/players/{id}/bowling` | Get bowling statistics |
 | GET | `/api/players/{id}/matchups` | Get matchup data against opponents |
@@ -654,7 +654,7 @@ http://localhost:8000
 - `format` — T20, T20I, ODI, Test (default: T20)
 - `role` — batsman, bowler, allrounder, wicketkeeper
 - `country` — Filter by country
-- `sort_by` — form_score, runs, wickets, batting_average
+- `sort_by` — impact_score, career_runs, career_wickets, batting_average
 - `sort_order` — asc, desc (default: desc)
 - `limit` — Number of results (1–200, default: 50)
 - `offset` — Pagination offset
@@ -710,35 +710,35 @@ http://localhost:8000
 
 ## Analytics Methodology
 
-### Player Form Score
+### Player Impact Score
 
-The Form Score is an **original, project-defined metric** (not an official cricket metric). It provides a single 0–100 score representing a player's current form.
+The Impact Score is an **original, project-defined metric** (not an official cricket metric). It provides one role-aware 0–100 measure of meaningful contribution. Recent form is built into the score rather than presented as a second rating.
 
 **Formula:**
 
 ```
-Form Score = 0.35 × Recent_Performance
-          + 0.20 × Consistency
-          + 0.15 × Opposition_Strength
-          + 0.10 × Venue_Performance
-          + 0.10 × Match_Situation
-          + 0.10 × Efficiency
+Impact Score = 0.35 × Performance_Impact
+             + 0.30 × Recent_Form
+             + 0.15 × Pressure_Impact
+             + 0.10 × Opposition_Quality
+             + 0.05 × Consistency
+             + 0.05 × Efficiency
 ```
 
 **Component definitions:**
 
 | Component | Weight | Calculation |
 |-----------|--------|-------------|
-| **Recent Performance** | 35% | Average runs in last 10 innings, min-max normalized across all players in format |
-| **Consistency** | 20% | 1 − (coefficient of variation), normalized. Lower variance = higher score |
-| **Opposition Strength** | 15% | Opponent bowling economy/wicket strength, weighted by balls faced |
-| **Venue Performance** | 10% | 1 − (CV of averages across venues). Players who perform well everywhere score higher |
-| **Match Situation** | 10% | Ratio of chasing average to overall average. Chasing under pressure = higher score |
-| **Efficiency** | 10% | Strike rate × average / 100. Combines speed and reliability of run-scoring |
+| **Performance Impact** | 35% | Format-relative career production; batting and bowling are scored independently and combined by role |
+| **Recent Form** | 30% | Rolling batting and bowling output, adjusted for the number of recent appearances |
+| **Pressure Impact** | 15% | Contribution in demanding match situations |
+| **Opposition Quality** | 10% | Quality of opposition faced, weighted by involvement |
+| **Consistency** | 5% | Reliability across innings |
+| **Efficiency** | 5% | Scoring or wicket-taking efficiency relative to the format |
 
-**Normalization:** Each component is min-max normalized to 0–100 within the same format. The best player gets 100, the worst gets 0 for each component.
+**Normalization:** Performance is percentile-ranked within each format. Batting and bowling are combined role-aware (75% stronger discipline, 25% secondary discipline), and small samples are shrunk toward 50 so brief appearances cannot dominate.
 
-**Minimum innings:** A player needs at least 3 innings for statistical significance. Players with fewer are excluded.
+**Sample confidence:** Discipline components need at least 3 innings. Players remain visible, but limited samples receive stronger midpoint adjustment.
 
 ### Team Strength Score
 

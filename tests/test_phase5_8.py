@@ -76,11 +76,11 @@ class TestPlayerCareer:
             result = player_career(conn, KOHLI)
         assert result["batting"]["Test"]["runs"] >= 8000
 
-    def test_kohli_form_scores(self):
+    def test_kohli_impact_scores(self):
         from backend.services.analytics import player_career
         with _engine.connect() as conn:
             result = player_career(conn, KOHLI)
-        assert len(result["form"]) >= 3
+        assert len(result["impact"]) >= 3
 
 
 class TestPlayerByYear:

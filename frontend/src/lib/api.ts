@@ -49,7 +49,7 @@ export const queryKeys = {
     all: ['players'] as const,
     list: (params?: Record<string, string>) => ['players', 'list', params] as const,
     detail: (id: string, format?: string) => ['players', 'detail', id, format] as const,
-    form: (id: string, format?: string) => ['players', 'form', id, format] as const,
+    impact: (id: string, format?: string) => ['players', 'impact', id, format] as const,
     batting: (id: string, format?: string) => ['players', 'batting', id, format] as const,
     bowling: (id: string, format?: string) => ['players', 'bowling', id, format] as const,
     matchups: (id: string, type?: string) => ['players', 'matchups', id, type] as const,
@@ -134,20 +134,26 @@ export const playerApi = {
     format?: string
     role?: string
     country?: string
+    search?: string
     sort_by?: string
     sort_order?: string
     limit?: number
     offset?: number
+    full_members_only?: boolean
+    recent_only?: boolean
   }) => {
     const query = new URLSearchParams()
     if (params?.format) query.set('format', params.format)
     if (params?.role) query.set('role', params.role)
     if (params?.country) query.set('country', params.country)
+    if (params?.search) query.set('search', params.search)
     if (params?.sort_by) query.set('sort_by', params.sort_by)
     if (params?.sort_order) query.set('sort_order', params.sort_order)
     if (params?.limit) query.set('limit', String(params.limit))
     if (params?.offset) query.set('offset', String(params.offset))
-    return fetchJson<{ players: PlayerRow[]; total: number; limit: number; offset: number }>(`/players?${query}`)
+    if (params?.full_members_only) query.set('full_members_only', 'true')
+    if (params?.recent_only) query.set('recent_only', 'true')
+    return fetchJson<{ players: PlayerRow[]; total: number; limit: number; offset: number }>(`/players/?${query}`)
   },
   
   get: (id: string, format?: string) => {
@@ -155,9 +161,9 @@ export const playerApi = {
     return fetchJson<PlayerDetail>(`/players/${id}${query}`)
   },
   
-  getForm: (id: string, format?: string) => {
+  getImpact: (id: string, format?: string) => {
     const query = format ? `?format=${format}` : ''
-    return fetchJson<PlayerFormResponse>(`/players/${id}/form${query}`)
+    return fetchJson<PlayerImpactResponse>(`/players/${id}/impact${query}`)
   },
   
   getBatting: (id: string, format?: string) => {
@@ -200,12 +206,14 @@ export const playerApi = {
 
 // Team API
 export const teamApi = {
-  list: (params?: { format?: string; sort_by?: string; limit?: number }) => {
+  list: (params?: { format?: string; sort_by?: string; limit?: number; full_members_only?: boolean; recent_only?: boolean }) => {
     const query = new URLSearchParams()
     if (params?.format) query.set('format', params.format)
     if (params?.sort_by) query.set('sort_by', params.sort_by)
     if (params?.limit) query.set('limit', String(params.limit))
-    return fetchJson<{ teams: TeamRow[]; total: number }>(`/teams?${query}`)
+    if (params?.full_members_only) query.set('full_members_only', 'true')
+    if (params?.recent_only) query.set('recent_only', 'true')
+    return fetchJson<{ teams: TeamRow[]; total: number }>(`/teams/?${query}`)
   },
   
   get: (id: string, format?: string) => {
@@ -238,6 +246,9 @@ export const matchApi = {
     season?: string
     limit?: number
     offset?: number
+    full_members_only?: boolean
+    recent_only?: boolean
+    completed_only?: boolean
   }) => {
     const query = new URLSearchParams()
     if (params?.format) query.set('format', params.format)
@@ -246,7 +257,10 @@ export const matchApi = {
     if (params?.season) query.set('season', params.season)
     if (params?.limit) query.set('limit', String(params.limit))
     if (params?.offset) query.set('offset', String(params.offset))
-    return fetchJson<{ matches: MatchRow[]; total: number; limit: number; offset: number }>(`/matches?${query}`)
+    if (params?.full_members_only) query.set('full_members_only', 'true')
+    if (params?.recent_only) query.set('recent_only', 'true')
+    if (params?.completed_only) query.set('completed_only', 'true')
+    return fetchJson<{ matches: MatchRow[]; total: number; limit: number; offset: number }>(`/matches/?${query}`)
   },
   
   get: (id: string) => fetchJson<MatchDetail>(`/matches/${id}`),
@@ -256,12 +270,14 @@ export const matchApi = {
 
 // Venue API
 export const venueApi = {
-  list: (params?: { format?: string; country?: string; limit?: number }) => {
+  list: (params?: { format?: string; country?: string; limit?: number; full_members_only?: boolean; recent_only?: boolean }) => {
     const query = new URLSearchParams()
     if (params?.format) query.set('format', params.format)
     if (params?.country) query.set('country', params.country)
     if (params?.limit) query.set('limit', String(params.limit))
-    return fetchJson<{ venues: VenueRow[]; total: number }>(`/venues?${query}`)
+    if (params?.full_members_only) query.set('full_members_only', 'true')
+    if (params?.recent_only) query.set('recent_only', 'true')
+    return fetchJson<{ venues: VenueRow[]; total: number }>(`/venues/?${query}`)
   },
   
   getAnalytics: (id: string, format?: string) => {
@@ -278,7 +294,7 @@ export const competitionApi = {
     const query = new URLSearchParams()
     if (params?.format) query.set('format', params.format)
     if (params?.limit) query.set('limit', String(params.limit))
-    return fetchJson<{ competitions: CompetitionRow[]; total: number }>(`/competitions?${query}`)
+    return fetchJson<{ competitions: CompetitionRow[]; total: number }>(`/competitions/?${query}`)
   },
   
   get: (id: string) => fetchJson<CompetitionDetail>(`/competitions/${id}`),
@@ -294,7 +310,7 @@ export const matchupApi = {
     const query = new URLSearchParams()
     if (params?.format) query.set('format', params.format)
     if (params?.limit) query.set('limit', String(params.limit))
-    return fetchJson<{ matchups: MatchupRow[]; total: number }>(`/matchups?${query}`)
+    return fetchJson<{ matchups: MatchupRow[]; total: number }>(`/matchups/?${query}`)
   },
 }
 
@@ -313,7 +329,7 @@ export const rankingApi = {
 
 // Live API
 export const liveApi = {
-  getMatches: () => fetchJson<LiveMatchesResponse>('/live'),
+  getMatches: () => fetchJson<LiveMatchesResponse>('/live/'),
   getMatchState: (matchId: string) => fetchJson<LiveMatchDetail>(`/live/${matchId}`),
 }
 
@@ -324,10 +340,12 @@ export const liveApi = {
 export interface PlayerRow {
   id: string
   name: string
+  full_name: string | null
+  image_url: string | null
   role: string | null
   country: string | null
   team_name: string | null
-  form_score: number | null
+  impact_score: number | null
   batting_average: number | null
   strike_rate: number | null
   career_runs: number | null
@@ -336,15 +354,17 @@ export interface PlayerRow {
 
 export interface PlayerDetail {
   id: string
+  format?: string
   name: string
   full_name: string | null
+  image_url: string | null
   role: string | null
   country: string | null
   team_name: string | null
   batting_style: string | null
   bowling_style: string | null
   bowling_type: string | null
-  form_score: number | null
+  impact_score: number | null
   matches: number | null
   innings: number | null
   runs: number | null
@@ -379,16 +399,16 @@ export interface PlayerDetail {
   } | null
 }
 
-export interface PlayerFormResponse {
+export interface PlayerImpactResponse {
   player_id: string
-  form_score: number
+  impact_score: number
   components: {
-    recent_performance: { score: number; weight: number }
-    consistency: { score: number; weight: number }
-    opposition_strength: { score: number; weight: number }
-    venue_performance: { score: number; weight: number }
-    match_situation: { score: number; weight: number }
-    efficiency: { score: number; weight: number }
+    performance_impact: { score: number; weight: number; description: string }
+    recent_form: { score: number; weight: number; description: string }
+    pressure_impact: { score: number; weight: number; description: string }
+    opposition_quality: { score: number; weight: number; description: string }
+    consistency: { score: number; weight: number; description: string }
+    efficiency: { score: number; weight: number; description: string }
   }
   recent_innings_count: number
 }
@@ -633,6 +653,8 @@ export interface MatchRow {
   competition_name: string | null
   season_name: string | null
   result: string
+  score_team_a: string | null
+  score_team_b: string | null
 }
 
 export interface MatchDetail extends MatchRow {}
@@ -656,6 +678,7 @@ export interface MatchScorecard {
     batting: {
       player_id: string | null
       player_name: string
+      image_url: string | null
       runs: number | null
       balls: number | null
       fours: number | null
@@ -666,6 +689,7 @@ export interface MatchScorecard {
     bowling: {
       player_id: string | null
       player_name: string
+      image_url: string | null
       overs: number | null
       maidens: number | null
       runs: number | null
@@ -682,6 +706,7 @@ export interface VenueRow {
   city: string | null
   country: string | null
   total_matches: number | null
+  last_match_date: string | null
   avg_first_innings_score: number | null
   avg_second_innings_score: number | null
   chasing_win_pct: number | null
@@ -752,6 +777,8 @@ export interface MatchupRow {
   sixes: number
   batter_name: string | null
   bowler_name: string | null
+  batter_image_url: string | null
+  bowler_image_url: string | null
 }
 
 export interface RankingRow {
@@ -764,47 +791,73 @@ export interface RankingRow {
   runs: number | null
   wickets: number | null
   batting_average: number | null
+  bowling_average: number | null
   strike_rate: number | null
   economy: number | null
-  form_score: number | null
+  impact_score: number | null
 }
 
 export interface LiveMatch {
-  id: string
-  name: string | null
-  status: string | null
-  match_type: string | null
+  match_id: string
+  external_id: string | null
+  team_a: string | null
+  team_b: string | null
+  team_a_id: string | null
+  team_b_id: string | null
+  format: string | null
+  competition: string | null
   venue: string | null
-  teams: {
-    name: string
-    shortname: string | null
-    scores: string | null
-  }[]
-  date_start: string | null
-  date_end: string | null
-  current_innings?: number | null
-  score?: {
-    inning: string
-    runs: number
-    wickets: number
-    overs: number
-    description: string
-  }[]
+  status: string | null
+  start_time: string | null
+  score_team_a: string | null
+  score_team_b: string | null
+  result: string | null
 }
 
 export interface LiveMatchesResponse {
+  matches: LiveMatch[]
   data: LiveMatch[]
-  source: string
-  fetched_at: string
+  total: number
+  source: string | null
+  fetched_at: string | null
   cached: boolean
   stale: boolean
   provider_available: boolean
+  error?: string
 }
 
 export interface LiveMatchDetail {
-  data: LiveMatch | null
-  source: string
-  fetched_at: string
+  match_id: string
+  external_id: string | null
+  team_a: string | null
+  team_b: string | null
+  team_a_id: string | null
+  team_b_id: string | null
+  format: string | null
+  competition: string | null
+  venue: string | null
+  status: string | null
+  result: string | null
+  innings: {
+    batting_team: string | null
+    bowling_team: string | null
+    score: string | null
+    wickets: number | null
+    overs: number | null
+    run_rate: number | null
+    target: number | null
+    required_run_rate: number | null
+  }
+  players: {
+    striker: string | null
+    striker_id: string | null
+    non_striker: string | null
+    non_striker_id: string | null
+    bowler: string | null
+    bowler_id: string | null
+  }
+  start_time: string | null
+  last_updated: string | null
   cached: boolean
   stale: boolean
   provider_available: boolean

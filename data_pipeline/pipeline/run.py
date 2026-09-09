@@ -36,13 +36,15 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from data_pipeline.ingestion.cricsheet import CricsheetIngestor
 from data_pipeline.pipeline.reader import read_directory
 from data_pipeline.pipeline.db_manager import DatabaseManager
+from data_pipeline.pipeline.player_identity import PLAYER_ALIASES, normalize_player_names
 from data_pipeline.pipeline.analytics import (
     compute_player_batting_stats,
     compute_player_bowling_stats,
-    compute_player_form_scores,
+    compute_player_impact_scores,
     compute_team_performance,
     compute_venue_stats,
     compute_matchups,
+    deduplicate_delivery_events,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,6 +86,14 @@ class CricketPipeline:
     def ingest(self, format_type: str, force: bool = False) -> Path:
         """Stage 1: Download and extract Cricsheet data."""
         logger.info(f"[Stage 1] Downloading {format_type} data from Cricsheet...")
+        # Extracted archives are a complete local source.  Do not require the
+        # ZIP (or network access) again when those JSON files already exist.
+        extract_dir = self.data_dir / format_type.lower()
+        if not force and extract_dir.exists():
+            count = len(list(extract_dir.glob("*.json")))
+            if count:
+                logger.info(f"[Stage 1] Using {count} existing match files in {extract_dir}")
+                return extract_dir
         self.ingestor.download(format_type, force=force)
         extract_dir = self.ingestor.extract(format_type, force=force)
         count = self.ingestor.get_match_count(format_type)
@@ -106,6 +116,12 @@ class CricketPipeline:
         """Stage 3: Validate data quality."""
         logger.info("[Stage 3] Validating data quality...")
         initial = len(df)
+        # Limited-overs cricket cannot approach 100 overs per innings, but a
+        # Test innings legitimately can.  The former global cap silently
+        # discarded late-innings Test deliveries and corrupted career totals.
+        test_match = df["format"].astype(str).str.strip().str.lower().isin(
+            {"test", "tests", "first-class", "first class"}
+        )
         
         valid = df[
             df["batter"].notna() &
@@ -113,8 +129,9 @@ class CricketPipeline:
             (df["runs_batter"] >= 0) &
             (df["runs_total"] >= 0) &
             (df["over_number"] >= 0) &
-            (df["over_number"] <= 100)
+            (test_match | (df["over_number"] <= 100))
         ].copy()
+        valid = deduplicate_delivery_events(valid)
         
         rejected = initial - len(valid)
         self.stats["matches_rejected"] = rejected
@@ -147,13 +164,17 @@ class CricketPipeline:
             f"{len(self.db._competition_ids)} competitions"
         )
     
-    def write_core_data(self, df: pd.DataFrame):
+    def write_core_data(self, df: pd.DataFrame, write_deliveries: bool = True):
         """Stage 5: Write core entities to database."""
         logger.info("[Stage 5] Writing core entities to database...")
         self.db.write_matches(df)
         self.db.write_innings(df)
-        self.db.write_deliveries_batch(df)
+        if write_deliveries:
+            self.db.write_deliveries_batch(df)
+        else:
+            logger.info("  Skipping delivery persistence (analytics still use validated in-memory data)")
         self.db.write_affiliations(df)
+        self.db.sync_primary_national_teams()
     
     def compute_analytics(self, df: pd.DataFrame) -> dict:
         """Stage 6: Compute all analytics."""
@@ -167,8 +188,10 @@ class CricketPipeline:
         # Player bowling stats
         results["bowling"] = compute_player_bowling_stats(df)
         
-        # Form scores
-        results["form"] = compute_player_form_scores(df)
+        # Unified Impact Score (recent form is one input, not another rating)
+        results["impact"] = compute_player_impact_scores(
+            df, results["batting"], results["bowling"]
+        )
         
         # Team performance
         results["team"] = compute_team_performance(df)
@@ -191,7 +214,7 @@ class CricketPipeline:
         
         batting_df = analytics["batting"]
         bowling_df = analytics["bowling"]
-        form_df = analytics["form"]
+        impact_df = analytics.get("impact", analytics.get("form", pd.DataFrame()))
         matchups_df = analytics["matchups"]
         
         # --- Player Batting Stats ---
@@ -227,17 +250,17 @@ class CricketPipeline:
             write_df = bowling_df[[c for c in cols if c in bowling_df.columns]].copy()
             self.db.write_analytics_table(write_df, "player_bowling_stats", format_filter=format_filter)
         
-        # --- Player Form ---
-        if not form_df.empty:
-            form_df = self._resolve_player_ids(form_df, "player_name")
+        # --- Player Impact (legacy table/column names retained in storage) ---
+        if not impact_df.empty:
+            impact_df = self._resolve_player_ids(impact_df, "player_name")
             cols = [
                 "player_id", "format", "form_score",
                 "recent_performance_component", "consistency_component",
                 "opposition_strength_component", "venue_performance_component",
                 "match_situation_component", "efficiency_component",
-                "recent_innings_count",
+                "recent_innings_count", "last_match_date",
             ]
-            write_df = form_df[[c for c in cols if c in form_df.columns]].copy()
+            write_df = impact_df[[c for c in cols if c in impact_df.columns]].copy()
             self.db.write_analytics_table(write_df, "player_form", format_filter=format_filter)
         
         # --- Team Performance ---
@@ -329,6 +352,7 @@ class CricketPipeline:
         format_type: str = "t20i",
         force: bool = False,
         match_limit: int = None,
+        write_deliveries: bool = True,
     ):
         """
         Run the complete pipeline.
@@ -368,6 +392,7 @@ class CricketPipeline:
                     continue
                 
                 df = self.validate(df)
+                df = normalize_player_names(df)
                 
                 # Normalize venue and team names to merge duplicates
                 from data_pipeline.spark.normalize import normalize_venue_name, normalize_team_name, normalize_format
@@ -379,7 +404,8 @@ class CricketPipeline:
                 df["format"] = df["format"].apply(lambda v: normalize_format(v) if pd.notna(v) and v else v)
                 
                 self.resolve_entities(df)
-                self.write_core_data(df)
+                self.db.register_player_aliases(PLAYER_ALIASES)
+                self.write_core_data(df, write_deliveries=write_deliveries)
                 
                 analytics = self.compute_analytics(df)
                 # Use the canonical format from the data for format-scoped analytics
@@ -441,6 +467,11 @@ def main():
         default=None,
         help="Override DATABASE_URL",
     )
+    parser.add_argument(
+        "--skip-deliveries",
+        action="store_true",
+        help="Compute analytics without persisting delivery rows (compressed serving database)",
+    )
     
     args = parser.parse_args()
     
@@ -454,6 +485,7 @@ def main():
         format_type=args.format,
         force=args.force,
         match_limit=args.sample,
+        write_deliveries=not args.skip_deliveries,
     )
 
 

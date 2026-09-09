@@ -30,7 +30,7 @@ with engine.connect() as conn:
     
     # Player list (50)
     rows = _query(conn, """SELECT p.id, p.canonical_name AS name, p.role, p.country,
-        t.canonical_name AS team_name, pf.form_score,
+        t.canonical_name AS team_name, pf.form_score AS impact_score,
         pbs.batting_average, pbs.strike_rate, pbs.runs AS career_runs, pws.wickets AS career_wickets
         FROM players p LEFT JOIN teams t ON p.team_id = t.id
         LEFT JOIN player_form pf ON p.id = pf.player_id AND pf.format = :fmt
@@ -41,7 +41,7 @@ with engine.connect() as conn:
     
     # Player list (200 - max)
     rows = _query(conn, """SELECT p.id, p.canonical_name AS name, p.role, p.country,
-        t.canonical_name AS team_name, pf.form_score,
+        t.canonical_name AS team_name, pf.form_score AS impact_score,
         pbs.batting_average, pbs.strike_rate, pbs.runs AS career_runs, pws.wickets AS career_wickets
         FROM players p LEFT JOIN teams t ON p.team_id = t.id
         LEFT JOIN player_form pf ON p.id = pf.player_id AND pf.format = :fmt
@@ -96,7 +96,7 @@ with engine.connect() as conn:
     # Player detail
     row = _query(conn, """SELECT p.id, p.canonical_name AS name, p.full_name, p.role, p.country,
         p.batting_style, p.bowling_style, p.bowling_type,
-        t.canonical_name AS team_name, pf.form_score,
+        t.canonical_name AS team_name, pf.form_score AS impact_score,
         pbs.matches, pbs.innings, pbs.runs, pbs.batting_average, pbs.strike_rate,
         pbs.highest_score, pbs.fours, pbs.sixes, pbs.fifties, pbs.hundreds,
         pbs.balls_faced, pbs.not_outs, pbs.boundary_pct, pbs.dot_ball_pct,

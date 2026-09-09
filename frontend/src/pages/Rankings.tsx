@@ -21,10 +21,11 @@ export default function Rankings() {
   const [category, setCategory] = useState('batting')
   const [source, setSource] = useState<'platform' | 'icc'>('platform')
   
-  const targetFormat = globalFormat === 'All' ? 'T20' : globalFormat
+  const targetFormat = globalFormat
+  const iccFormat = globalFormat === 'International' ? 'T20I' : globalFormat
 
   const platform = usePlatformRankings(targetFormat, category)
-  const icc = useIccRankings(targetFormat, category)
+  const icc = useIccRankings(iccFormat, category)
 
   const isLoading = source === 'platform' ? platform.isLoading : icc.isLoading
   const isError = source === 'platform' ? platform.isError : icc.isError
@@ -143,7 +144,7 @@ export default function Rankings() {
                       <th className="text-right">Avg</th>
                     </>
                   )}
-                  <th className="text-right">Form</th>
+                  <th className="text-right">Impact</th>
                 </tr>
               </thead>
               <tbody>
@@ -189,18 +190,18 @@ export default function Rankings() {
                           {player.economy?.toFixed(2) || '—'}
                         </td>
                         <td className="text-right font-mono text-sm text-gray-300">
-                          {player.batting_average?.toFixed(1) || '—'}
+                          {player.bowling_average?.toFixed(1) || '—'}
                         </td>
                       </>
                     )}
                     <td className="text-right">
-                      {player.form_score != null ? (
+                      {player.impact_score != null ? (
                         <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-[11px] font-bold ${
-                          player.form_score >= 70 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
-                          player.form_score >= 50 ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30' :
+                          player.impact_score >= 70 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
+                          player.impact_score >= 50 ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30' :
                           'bg-amber-500/15 text-amber-400 border border-amber-500/30'
                         }`}>
-                          {player.form_score.toFixed(1)}
+                          {player.impact_score.toFixed(1)}
                         </span>
                       ) : (
                         <span className="text-gray-600">—</span>
@@ -220,7 +221,7 @@ export default function Rankings() {
           {source === 'platform' ? (
             <>
               <strong className="text-gray-400">Platform Rating</strong> · 
-              Computed using weighted composite of batting average (40%), strike rate (30%), and form score (30%). 
+              Computed using discipline-specific production and the unified Impact Score, which already includes recent form. 
               Minimum 5 innings required.
             </>
           ) : (

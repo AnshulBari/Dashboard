@@ -1,230 +1,218 @@
-import { useState, useEffect } from 'react'
-import { useParams } from 'react-router-dom'
-import { ArrowLeft, TrendingUp, Target } from 'lucide-react'
-import { playerApi } from '../services/api'
+import { Link, useOutletContext, useParams } from 'react-router-dom'
+import {
+  Activity, ArrowLeft, Award, CircleDot, Gauge, ShieldCheck,
+  Sparkles, Target, TrendingUp, Zap,
+} from 'lucide-react'
+import { usePlayer } from '@/hooks/useQueries'
+import ErrorCard from '@/components/ui/ErrorCard'
+import { Skeleton } from '@/components/ui/Skeleton'
+import PlayerPortrait from '@/components/ui/PlayerPortrait'
 
-interface PlayerData {
-  id: string
-  name: string
-  full_name: string | null
-  role: string | null
-  country: string | null
-  team_name: string | null
-  batting_style: string | null
-  bowling_style: string | null
-  form_score: number | null
-  matches: number | null
-  innings: number | null
-  runs: number | null
-  batting_average: number | null
-  strike_rate: number | null
-  highest_score: number | null
-  fours: number | null
-  sixes: number | null
-  fifties: number | null
-  hundreds: number | null
-  balls_faced: number | null
-  not_outs: number | null
-  boundary_pct: number | null
-  dot_ball_pct: number | null
-  powerplay_runs: number | null
-  powerplay_strike_rate: number | null
-  middle_runs: number | null
-  middle_strike_rate: number | null
-  death_runs: number | null
-  death_strike_rate: number | null
-  bowling?: {
-    matches: number | null
-    innings: number | null
-    overs: number | null
-    wickets: number | null
-    runs_conceded: number | null
-    bowling_average: number | null
-    strike_rate: number | null
-    economy: number | null
-    dot_ball_pct: number | null
-  } | null
+interface PageContext { format: string }
+
+function display(value: number | null | undefined, digits = 0) {
+  if (value == null) return '—'
+  return digits ? value.toFixed(digits) : value.toLocaleString()
 }
 
-function StatBox({ label, value, subtitle }: { label: string; value: string | number; subtitle?: string }) {
+function StatTile({ label, value, accent = false }: { label: string; value: string | number; accent?: boolean }) {
   return (
-    <div className="text-center p-3 rounded-lg bg-surface-50">
-      <p className="text-2xl font-bold text-gray-900">{value}</p>
-      <p className="text-xs font-medium text-gray-500 mt-1">{label}</p>
-      {subtitle && <p className="text-xs text-gray-400">{subtitle}</p>}
+    <div className={`profile-stat ${accent ? 'profile-stat-accent' : ''}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   )
 }
 
 export default function PlayerDetail() {
-  const { id } = useParams()
-  const [player, setPlayer] = useState<PlayerData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { id = '' } = useParams()
+  const { format } = useOutletContext<PageContext>()
+  const requestedFormat = format
+  const player = usePlayer(id, requestedFormat)
 
-  useEffect(() => {
-    if (!id) return
-    async function load() {
-      try {
-        const data = await playerApi.get(id!) as PlayerData
-        setPlayer(data)
-      } catch (err) {
-        setError('Failed to load player data')
-        console.error(err)
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
-  }, [id])
-
-  if (loading) {
+  if (player.isLoading) {
     return (
-      <div className="text-center py-12 text-gray-500">Loading player...</div>
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-36" />
+        <Skeleton className="h-[320px] w-full rounded-[24px]" />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Skeleton className="h-72 rounded-[20px]" />
+          <Skeleton className="h-72 rounded-[20px]" />
+        </div>
+      </div>
     )
   }
 
-  if (error || !player) {
+  if (player.isError || !player.data) {
     return (
-      <div className="text-center py-12 text-gray-500">{error || 'Player not found'}</div>
+      <div className="card-solid">
+        <ErrorCard
+          title="Player profile unavailable"
+          message="The player record could not be loaded."
+          onRetry={() => player.refetch()}
+        />
+      </div>
     )
   }
 
-  const battingAvg = player.batting_average ?? 0
-  const strikeRate = player.strike_rate ?? 0
-  const formScore = player.form_score ?? 0
+  const data = player.data
+  const activeFormat = data.format || requestedFormat || 'International'
+  const hasBatting = data.matches != null || data.runs != null || data.innings != null
+  const hasBowling = Boolean(data.bowling && (
+    data.bowling.matches != null || data.bowling.wickets != null || data.bowling.overs != null
+  ))
+
   return (
-    <div>
-      {/* Back button */}
-      <button
-        onClick={() => window.history.back()}
-        className="flex items-center text-sm text-gray-500 hover:text-gray-700 mb-6 transition-colors"
-      >
-        <ArrowLeft className="h-4 w-4 mr-1" />
-        Back to Players
-      </button>
+    <div className="space-y-4">
+      <Link to={`/players${requestedFormat ? `?format=${requestedFormat}` : ''}`} className="btn-ghost -ml-2 w-fit gap-2">
+        <ArrowLeft className="h-3.5 w-3.5" /> Back to players
+      </Link>
 
-      {/* Player Header */}
-      <div className="card p-6 mb-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">{player.name}</h1>
-            {player.full_name && player.full_name !== player.name && (
-              <p className="text-sm text-gray-500 mt-1">{player.full_name}</p>
+      <section className="player-profile-hero">
+        <div className="profile-hero-grid">
+          <div className="profile-identity">
+            <PlayerPortrait name={data.name} fullName={data.full_name} imageUrl={data.image_url} size="hero" className="profile-avatar" showStatus />
+            <div className="min-w-0">
+              <p className="panel-kicker flex items-center gap-2"><CircleDot className="h-3 w-3" /> Player intelligence</p>
+              <h1>{data.full_name || data.name}</h1>
+              {data.full_name && data.full_name !== data.name && <p className="profile-known-as">Known as {data.name}</p>}
+              <div className="profile-tags">
+                <span>{data.role || 'Player'}</span>
+                {data.team_name && <span>{data.team_name}</span>}
+                {data.country && <span>{data.country}</span>}
+                <span className="active">{activeFormat}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="profile-ratings">
+            <div className="rating-ring rating-ring-primary">
+              <strong>{display(data.impact_score, 1)}</strong>
+              <span>Impact</span>
+            </div>
+            <div className="rating-ring">
+              <strong>{display(data.batting_average, 1)}</strong>
+              <span>Average</span>
+            </div>
+            <div className="rating-ring">
+              <strong>{display(data.strike_rate, 1)}</strong>
+              <span>Strike rate</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="profile-hero-stats">
+          <div><span>Matches</span><strong>{display(data.matches)}</strong></div>
+          <div><span>Innings</span><strong>{display(data.innings)}</strong></div>
+          <div><span>Career runs</span><strong>{display(data.runs)}</strong></div>
+          <div><span>Highest score</span><strong>{display(data.highest_score)}</strong></div>
+        </div>
+      </section>
+
+      <div className="profile-layout">
+        <div className="space-y-4 lg:col-span-2">
+          <section className="card-solid overflow-hidden">
+            <div className="panel-header">
+              <div>
+                <p className="panel-kicker">Career output</p>
+                <h2 className="mt-1 font-display text-sm font-semibold text-white">Batting intelligence</h2>
+              </div>
+              <TrendingUp className="h-4 w-4 text-brand-400" />
+            </div>
+            {hasBatting ? (
+              <div className="profile-stat-grid">
+                <StatTile label="Runs" value={display(data.runs)} accent />
+                <StatTile label="Average" value={display(data.batting_average, 2)} />
+                <StatTile label="Strike rate" value={display(data.strike_rate, 2)} />
+                <StatTile label="Balls faced" value={display(data.balls_faced)} />
+                <StatTile label="Not outs" value={display(data.not_outs)} />
+                <StatTile label="Fours" value={display(data.fours)} />
+                <StatTile label="Sixes" value={display(data.sixes)} />
+                <StatTile label="Fifties" value={display(data.fifties)} />
+                <StatTile label="Hundreds" value={display(data.hundreds)} />
+                <StatTile label="Boundary share" value={data.boundary_pct == null ? '—' : `${data.boundary_pct.toFixed(1)}%`} />
+                <StatTile label="Dot-ball share" value={data.dot_ball_pct == null ? '—' : `${data.dot_ball_pct.toFixed(1)}%`} />
+                <StatTile label="Best score" value={display(data.highest_score)} />
+              </div>
+            ) : (
+              <div className="profile-no-data">No batting summary is available for {activeFormat}.</div>
             )}
-            <div className="flex items-center gap-3 mt-2">
-              <span className="badge-blue">{player.role || 'Unknown'}</span>
-              {player.team_name && <span className="badge-green">{player.team_name}</span>}
-              {player.batting_style && <span className="text-xs text-gray-400">{player.batting_style}</span>}
-            </div>
-          </div>
-          <div className="flex items-center gap-6">
-            <div className="text-center">
-              <div className="w-20 h-20 rounded-full bg-brand-50 border-4 border-brand-500 flex items-center justify-center">
-                <span className="text-2xl font-bold text-brand-700">{formScore.toFixed(1)}</span>
-              </div>
-              <p className="text-xs font-medium text-gray-500 mt-2">Form Score</p>
-            </div>
-            <div className="text-center">
-              <div className="w-16 h-16 rounded-full bg-surface-50 border-2 border-surface-300 flex items-center justify-center">
-                <span className="text-xl font-bold text-gray-700">{battingAvg.toFixed(1)}</span>
-              </div>
-              <p className="text-xs font-medium text-gray-500 mt-2">Average</p>
-            </div>
-            <div className="text-center">
-              <div className="w-16 h-16 rounded-full bg-surface-50 border-2 border-surface-300 flex items-center justify-center">
-                <span className="text-xl font-bold text-gray-700">{strikeRate.toFixed(1)}</span>
-              </div>
-              <p className="text-xs font-medium text-gray-500 mt-2">Strike Rate</p>
-            </div>
-          </div>
-        </div>
-      </div>
+          </section>
 
-      {/* Career Batting Stats */}
-      <div className="card p-6 mb-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Career Batting</h2>
-        <div className="grid grid-cols-4 md:grid-cols-6 gap-3">
-          <StatBox label="Matches" value={player.matches ?? '-'} />
-          <StatBox label="Innings" value={player.innings ?? '-'} />
-          <StatBox label="Runs" value={(player.runs ?? 0).toLocaleString()} />
-          <StatBox label="Average" value={player.batting_average?.toFixed(1) ?? '-'} />
-          <StatBox label="Strike Rate" value={player.strike_rate?.toFixed(1) ?? '-'} />
-          <StatBox label="Highest" value={player.highest_score ?? '-'} />
-          <StatBox label="Fours" value={player.fours ?? '-'} />
-          <StatBox label="Sixes" value={player.sixes ?? '-'} />
-          <StatBox label="50s" value={player.fifties ?? '-'} />
-          <StatBox label="100s" value={player.hundreds ?? '-'} />
-          <StatBox label="Boundary %" value={player.boundary_pct != null ? `${player.boundary_pct.toFixed(1)}%` : '-'} />
-          <StatBox label="Dot Ball %" value={player.dot_ball_pct != null ? `${player.dot_ball_pct.toFixed(1)}%` : '-'} />
-        </div>
-      </div>
-
-      {/* Phase Performance */}
-      <div className="card p-6 mb-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Target className="h-5 w-5 text-brand-600" />
-          <h2 className="text-lg font-semibold text-gray-900">Phase Performance</h2>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {[
-            { name: 'Powerplay', runs: player.powerplay_runs, sr: player.powerplay_strike_rate },
-            { name: 'Middle Overs', runs: player.middle_runs, sr: player.middle_strike_rate },
-            { name: 'Death Overs', runs: player.death_runs, sr: player.death_strike_rate },
-          ].map((phase) => (
-            <div key={phase.name} className="p-4 rounded-lg bg-surface-50 border border-surface-200">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">{phase.name}</h3>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <p className="text-xs text-gray-500">Runs</p>
-                  <p className="text-sm font-bold text-gray-900">{phase.runs ?? '-'}</p>
+          <section className="card-solid overflow-hidden">
+            <div className="panel-header">
+              <div>
+                <p className="panel-kicker">Tactical split</p>
+                <h2 className="mt-1 font-display text-sm font-semibold text-white">Performance by innings phase</h2>
+              </div>
+              <Target className="h-4 w-4 text-brand-400" />
+            </div>
+            <div className="phase-grid">
+              {[
+                { name: 'Powerplay', runs: data.powerplay_runs, rate: data.powerplay_strike_rate, icon: Zap },
+                { name: 'Middle overs', runs: data.middle_runs, rate: data.middle_strike_rate, icon: Activity },
+                { name: 'Death overs', runs: data.death_runs, rate: data.death_strike_rate, icon: Gauge },
+              ].map((phase) => (
+                <div className="phase-card" key={phase.name}>
+                  <span className="phase-icon"><phase.icon /></span>
+                  <div>
+                    <h3>{phase.name}</h3>
+                    <p><strong>{display(phase.runs)}</strong> runs</p>
+                    <p><strong>{display(phase.rate, 1)}</strong> strike rate</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs text-gray-500">Strike Rate</p>
-                  <p className="text-sm font-bold text-gray-900">{phase.sr?.toFixed(1) ?? '-'}</p>
-                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        <aside className="space-y-4">
+          <section className="card-solid overflow-hidden">
+            <div className="panel-header">
+              <div>
+                <p className="panel-kicker">Player profile</p>
+                <h2 className="mt-1 font-display text-sm font-semibold text-white">Technique</h2>
               </div>
+              <ShieldCheck className="h-4 w-4 text-brand-400" />
             </div>
-          ))}
-        </div>
-      </div>
+            <dl className="profile-facts">
+              <div><dt>Batting style</dt><dd>{data.batting_style || 'Not recorded'}</dd></div>
+              <div><dt>Bowling style</dt><dd>{data.bowling_style || 'Not recorded'}</dd></div>
+              <div><dt>Role</dt><dd>{data.role || 'Not recorded'}</dd></div>
+              <div><dt>Current team</dt><dd>{data.team_name || 'Not recorded'}</dd></div>
+              <div><dt>Data format</dt><dd className="text-brand-300">{activeFormat}</dd></div>
+            </dl>
+          </section>
 
-      {/* Bowling Stats (if applicable) */}
-      {player.bowling && (
-        <div className="card p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Career Bowling</h2>
-          <div className="grid grid-cols-4 md:grid-cols-5 gap-3">
-            <StatBox label="Matches" value={player.bowling.matches ?? '-'} />
-            <StatBox label="Wickets" value={player.bowling.wickets ?? '-'} />
-            <StatBox label="Average" value={player.bowling.bowling_average?.toFixed(1) ?? '-'} />
-            <StatBox label="Economy" value={player.bowling.economy?.toFixed(2) ?? '-'} />
-            <StatBox label="Strike Rate" value={player.bowling.strike_rate?.toFixed(1) ?? '-'} />
-          </div>
-        </div>
-      )}
+          {hasBowling && data.bowling && (
+            <section className="card-solid overflow-hidden">
+              <div className="panel-header">
+                <div>
+                  <p className="panel-kicker">With the ball</p>
+                  <h2 className="mt-1 font-display text-sm font-semibold text-white">Bowling intelligence</h2>
+                </div>
+                <Award className="h-4 w-4 text-brand-400" />
+              </div>
+              <div className="bowling-grid">
+                <StatTile label="Wickets" value={display(data.bowling.wickets)} accent />
+                <StatTile label="Overs" value={display(data.bowling.overs, 1)} />
+                <StatTile label="Average" value={display(data.bowling.bowling_average, 2)} />
+                <StatTile label="Economy" value={display(data.bowling.economy, 2)} />
+                <StatTile label="Strike rate" value={display(data.bowling.strike_rate, 2)} />
+                <StatTile label="Dot-ball share" value={data.bowling.dot_ball_pct == null ? '—' : `${data.bowling.dot_ball_pct.toFixed(1)}%`} />
+              </div>
+            </section>
+          )}
 
-      {/* Form Score Explanation */}
-      <div className="card p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <TrendingUp className="h-5 w-5 text-brand-600" />
-          <h2 className="text-lg font-semibold text-gray-900">Form Score</h2>
-        </div>
-        <p className="text-sm text-gray-600 mb-3">
-          The Form Score is a weighted composite metric (0-100) based on recent performance, consistency,
-          opposition strength, venue performance, match situation, and efficiency.
-        </p>
-        <div className="flex items-center gap-4">
-          <div className="text-center">
-            <div className="w-16 h-16 rounded-full bg-brand-50 border-4 border-brand-500 flex items-center justify-center">
-              <span className="text-xl font-bold text-brand-700">{formScore.toFixed(1)}</span>
+          <section className="profile-insight">
+            <Sparkles />
+            <div>
+              <span>Impact model</span>
+              <strong>{display(data.impact_score, 1)} / 100</strong>
+              <p>Blends sustained performance, recent form, pressure contribution, opposition quality, consistency, and efficiency.</p>
             </div>
-            <p className="text-xs text-gray-500 mt-1">Overall</p>
-          </div>
-          <div className="text-sm text-gray-500">
-            Weighted across: Recent Performance (35%), Consistency (20%), Opposition Strength (15%),
-            Venue Performance (10%), Match Situation (10%), Efficiency (10%)
-          </div>
-        </div>
+          </section>
+        </aside>
       </div>
     </div>
   )

@@ -1,277 +1,227 @@
 import { useState } from 'react'
-import { useOutletContext } from 'react-router-dom'
-import { Link } from 'react-router-dom'
-import { 
-  Users, Shield, Trophy, MapPin, Radio, 
-  TrendingUp, WifiOff, Target,
-  Clock, ChevronRight, Activity, Globe
+import { Link, useOutletContext } from 'react-router-dom'
+import {
+  ArrowUpRight, ChevronRight, CircleDot,
+  MapPin, Radio, Shield, Sparkles, Trophy, Users, WifiOff,
 } from 'lucide-react'
-import { usePlayerList, useTeamList, useMatchList, useVenueList, useLiveMatches } from '@/hooks/useQueries'
-import { SkeletonCard, SkeletonMatch, Skeleton } from '@/components/ui/Skeleton'
-import ErrorCard from '@/components/ui/ErrorCard'
+import {
+  useLiveMatches, useMatchList, usePlayerList, useTeamList, useVenueList,
+} from '@/hooks/useQueries'
+import { Skeleton, SkeletonCard, SkeletonMatch } from '@/components/ui/Skeleton'
 import EmptyState from '@/components/ui/EmptyState'
+import ErrorCard from '@/components/ui/ErrorCard'
 import FormatBadge from '@/components/ui/FormatBadge'
-import type { PlayerRow, MatchRow } from '@/lib/api'
+import CountryFlag from '@/components/ui/CountryFlag'
+import PlayerPortrait from '@/components/ui/PlayerPortrait'
+import type { LiveMatch, MatchRow, PlayerRow, VenueRow } from '@/lib/api'
 
 interface DashboardContext { format: string }
+type PlayerTab = 'impact' | 'batting' | 'bowling'
 
-// ============================================================
-// Player Tab Categories
-// ============================================================
-type PlayerTab = 'batting' | 'bowling' | 'form'
-
-const PLAYER_TABS: { key: PlayerTab; label: string; sort: string }[] = [
-  { key: 'form', label: 'In Form', sort: 'form_score' },
-  { key: 'batting', label: 'Batting', sort: 'batting_average' },
-  { key: 'bowling', label: 'Bowling', sort: 'career_wickets' },
+const playerTabs: { key: PlayerTab; label: string; sort: string; metric: string }[] = [
+  { key: 'impact', label: 'Impact', sort: 'impact_score', metric: 'IMPACT' },
+  { key: 'batting', label: 'Batting', sort: 'career_runs', metric: 'RUNS' },
+  { key: 'bowling', label: 'Bowling', sort: 'career_wickets', metric: 'WKTS' },
 ]
 
-// ============================================================
-// Sub-components
-// ============================================================
+const FULL_MEMBER_TEAMS = new Set([
+  'afghanistan', 'australia', 'bangladesh', 'england', 'india', 'ireland',
+  'new zealand', 'pakistan', 'south africa', 'sri lanka', 'west indies', 'zimbabwe',
+])
 
-function StatCard({ label, value, icon: Icon, color, trend }: {
-  label: string; value: string | number; icon: React.ElementType
-  color: string; trend?: { value: string; positive: boolean }
-}) {
-  return (
-    <div className="card-glass p-4 group hover:bg-white/[0.05] transition-all duration-300">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="stat-label mb-1">{label}</p>
-          <p className="text-2xl font-bold text-gray-100">{value}</p>
-        </div>
-        <div className={`w-10 h-10 rounded-xl ${color} flex items-center justify-center opacity-60 group-hover:opacity-100 transition-opacity`}>
-          <Icon className="h-5 w-5 text-white" />
-        </div>
-      </div>
-      {trend && (
-        <p className={`mt-2 text-[11px] font-medium ${trend.positive ? 'text-emerald-400' : 'text-red-400'}`}>
-          {trend.value}
-        </p>
-      )}
-    </div>
-  )
+function fullMemberName(team: string | null) {
+  return (team || '').trim().toLowerCase().replace(/\s+(men|women|xi|a)$/i, '')
 }
 
-function PlayerListItem({ player, rank, statLabel }: { player: PlayerRow; rank: number; statLabel: string }) {
-  const statValue = statLabel === 'batting_average' 
-    ? player.batting_average?.toFixed(1)
-    : statLabel === 'career_wickets' 
-    ? player.career_wickets
-    : statLabel === 'form_score'
-    ? player.form_score?.toFixed(1)
-    : null
+function isFullMemberMatch(match: LiveMatch) {
+  return FULL_MEMBER_TEAMS.has(fullMemberName(match.team_a))
+    && FULL_MEMBER_TEAMS.has(fullMemberName(match.team_b))
+}
 
-  const statDisplay = statLabel === 'batting_average' ? 'AVG'
-    : statLabel === 'career_wickets' ? 'WKTS'
-    : 'FORM'
+function fixtureTime(value: string | null) {
+  if (!value) return 'Start time to be confirmed'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return new Intl.DateTimeFormat(undefined, {
+    day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
+  }).format(parsed)
+}
 
+function metricValue(player: PlayerRow, tab: PlayerTab) {
+  if (tab === 'batting') return player.career_runs?.toLocaleString() ?? '—'
+  if (tab === 'bowling') return player.career_wickets?.toLocaleString() ?? '—'
+  return player.impact_score?.toFixed(1) ?? '—'
+}
+
+function PerformerRow({ player, index, tab, format }: { player: PlayerRow; index: number; tab: PlayerTab; format: string }) {
   return (
-    <Link to={`/players/${player.id}`} className="player-row group">
-      <span className="text-[10px] font-bold text-gray-600 w-4 text-right">{rank}</span>
-      <div className="player-avatar group-hover:border-emerald-500/30 transition-colors">
-        {player.name?.charAt(0) || '?'}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-200 truncate group-hover:text-emerald-400 transition-colors">
-          {player.name}
+    <Link to={`/players/${player.id}${format === 'International' ? '' : `?format=${format}`}`} className="performer-row group">
+      <div className="performer-rank">{String(index + 1).padStart(2, '0')}</div>
+      <PlayerPortrait name={player.name} fullName={player.full_name} imageUrl={player.image_url} size="sm" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[12px] font-semibold text-gray-100 transition group-hover:text-brand-300">
+          {player.full_name || player.name}
         </p>
-        <p className="text-[11px] text-gray-500">
-          {player.team_name || player.country || '—'}
-          {player.role && <span className="ml-1.5 text-gray-600">· {player.role}</span>}
+        <p className="mt-0.5 truncate text-[9px] text-gray-500">
+          {player.team_name || player.country || player.role || 'Independent'}
         </p>
       </div>
-      <div className="text-right flex flex-col items-end">
-        {statValue != null && (
-          <span className="text-sm font-bold text-emerald-400">{statDisplay === 'FORM' ? statValue : statDisplay === 'AVG' ? statValue : statValue}</span>
-        )}
-        <span className="text-[9px] text-gray-600 uppercase tracking-wider">{statDisplay}</span>
+      <div className="text-right">
+        <p className="font-display text-sm font-bold text-white">{metricValue(player, tab)}</p>
+        <p className="text-[7px] font-bold tracking-[.14em] text-gray-600">
+          {playerTabs.find((item) => item.key === tab)?.metric}
+        </p>
       </div>
     </Link>
   )
 }
 
-function MatchCard({ match }: { match: MatchRow }) {
-  const resultColor = match.result_type === 'win' ? 'text-emerald-400'
-    : match.result_type === 'loss' ? 'text-red-400'
-    : 'text-gray-400'
-
+function ResultCard({ match }: { match: MatchRow }) {
   return (
-    <Link to={`/matches/${match.id}`} className="match-card group">
-      <div className="flex items-center justify-between mb-3">
+    <Link to={`/matches/${match.id}`} className="result-card group">
+      <div className="mb-4 flex items-center justify-between">
         <FormatBadge format={match.format} />
-        {match.competition_name && (
-          <span className="text-[10px] text-gray-500 truncate max-w-[120px]">{match.competition_name}</span>
-        )}
+        <span className="text-[8px] font-semibold text-gray-500">{match.match_date || 'Date unavailable'}</span>
       </div>
-      
-      <div className="flex items-center justify-between">
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-gray-200 truncate group-hover:text-emerald-400 transition-colors">
-            {match.team_a || 'TBD'}
-          </p>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <span className="flex min-w-0 items-center gap-2"><CountryFlag team={match.team_a} size="sm" /><span className="truncate text-[11px] font-semibold text-white">{match.team_a || 'TBD'}</span></span>
+          <strong className="shrink-0 font-mono text-[10px] text-white">{match.score_team_a || '—'}</strong>
         </div>
-        <div className="mx-3 flex flex-col items-center">
-          <span className="text-[10px] font-bold text-gray-500 bg-white/5 px-2 py-0.5 rounded-md">VS</span>
-        </div>
-        <div className="flex-1 min-w-0 text-right">
-          <p className="text-sm font-semibold text-gray-200 truncate group-hover:text-emerald-400 transition-colors">
-            {match.team_b || 'TBD'}
-          </p>
+        <div className="flex items-center justify-between gap-3">
+          <span className="flex min-w-0 items-center gap-2"><CountryFlag team={match.team_b} size="sm" /><span className="truncate text-[11px] font-semibold text-white">{match.team_b || 'TBD'}</span></span>
+          <strong className="shrink-0 font-mono text-[10px] text-white">{match.score_team_b || '—'}</strong>
         </div>
       </div>
-      
-      <div className="mt-3 flex items-center justify-between text-[10px]">
-        <span className="text-gray-500">{match.match_date || '—'}</span>
-        <span className={`font-semibold ${resultColor} truncate max-w-[180px]`}>
-          {match.result}
-        </span>
-      </div>
+      <p className="mt-4 line-clamp-1 border-t border-white/[.06] pt-3 text-[9px] font-medium text-brand-300">
+        {match.result || 'Result pending'}
+      </p>
     </Link>
   )
 }
 
-function LiveMatchCard({ match }: { match: any }) {
+function LiveTile({ match }: { match: LiveMatch }) {
+  const isLive = match.status?.toLowerCase() === 'live'
   return (
-    <div className="match-card-live">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          {match.match_type && <FormatBadge format={match.match_type} />}
-          {match.venue && (
-            <span className="text-[10px] text-gray-500 truncate max-w-[150px]">{match.venue}</span>
-          )}
-        </div>
-        <span className="live-badge">
-          <span className="live-dot" />
-          LIVE
-        </span>
+    <div className="live-tile">
+      <div className="flex items-center justify-between">
+        <span className={isLive ? 'live-badge' : 'badge'}>{isLive && <span className="live-dot" />}{isLive ? 'Live' : 'Upcoming'}</span>
+        <span className="text-[8px] text-gray-500">{match.format || 'Match'}</span>
       </div>
-      {match.teams && match.teams.length >= 2 && (
-        <div className="flex items-center justify-between mt-2">
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-gray-100">{match.teams[0]?.name || 'TBA'}</p>
-            {match.teams[0]?.scores && (
-              <p className="text-xs font-mono text-emerald-400">{match.teams[0].scores}</p>
-            )}
-          </div>
-          <span className="text-xs text-gray-500 font-medium px-3">vs</span>
-          <div className="flex-1 text-right">
-            <p className="text-sm font-semibold text-gray-100">{match.teams[1]?.name || 'TBA'}</p>
-            {match.teams[1]?.scores && (
-              <p className="text-xs font-mono text-emerald-400">{match.teams[1].scores}</p>
-            )}
-          </div>
+      <div className="mt-4 space-y-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <span className="flex min-w-0 items-center gap-2"><CountryFlag team={match.team_a} size="sm" /><span className="truncate text-[11px] font-semibold text-gray-200">{match.team_a || 'TBA'}</span></span>
+          {isLive && <span className="shrink-0 font-mono text-[11px] font-bold text-white">{match.score_team_a || '—'}</span>}
         </div>
-      )}
-      {match.status && (
-        <p className="text-[10px] text-gray-500 mt-2 text-center">{match.status}</p>
-      )}
+        <div className="flex items-center justify-between gap-3">
+          <span className="flex min-w-0 items-center gap-2"><CountryFlag team={match.team_b} size="sm" /><span className="truncate text-[11px] font-semibold text-gray-200">{match.team_b || 'TBA'}</span></span>
+          {isLive && <span className="shrink-0 font-mono text-[11px] font-bold text-white">{match.score_team_b || '—'}</span>}
+        </div>
+      </div>
+      <p className="mt-3 border-t border-white/[.06] pt-2 text-[8px] text-gray-500">
+        {isLive ? (match.result || match.venue || 'Match update pending') : `${fixtureTime(match.start_time)}${match.venue ? ` · ${match.venue}` : ''}`}
+      </p>
     </div>
   )
 }
 
-// ============================================================
-// Main Dashboard
-// ============================================================
+function VenueConditions({ venue }: { venue: VenueRow }) {
+  const first = venue.avg_first_innings_score
+  const second = venue.avg_second_innings_score
+  const difference = first != null && second != null ? Math.round(first - second) : null
+  const read = difference == null
+    ? 'Scoring pattern unavailable'
+    : Math.abs(difference) < 10
+      ? 'Scoring stays balanced across innings'
+      : difference > 0
+        ? `Scoring falls by ${difference} runs later`
+        : `Scoring improves by ${Math.abs(difference)} runs later`
+
+  return (
+    <Link to={`/venues/${venue.id}`} className="conditions-row group">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-[10px] font-semibold text-gray-100 group-hover:text-brand-300">{venue.name}</p>
+          <p className="mt-0.5 text-[8px] text-gray-500">Last match {venue.last_match_date || 'date unavailable'}</p>
+        </div>
+        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-600 transition group-hover:text-brand-400" />
+      </div>
+      <div className="conditions-metrics">
+        <div><span>1st inns avg</span><strong>{first == null ? '—' : Math.round(first)}</strong></div>
+        <div><span>2nd inns avg</span><strong>{second == null ? '—' : Math.round(second)}</strong></div>
+      </div>
+      <p className="conditions-read">{read}</p>
+    </Link>
+  )
+}
+
 export default function Dashboard() {
   const { format } = useOutletContext<DashboardContext>()
-  const [playerTab, setPlayerTab] = useState<PlayerTab>('form')
-  
-  const activeTab = PLAYER_TABS.find(t => t.key === playerTab)!
-  
-  const players = usePlayerList({ 
-    format: format === 'All' ? undefined : format, 
-    sort_by: activeTab.sort, 
-    limit: 10 
+  const [playerTab, setPlayerTab] = useState<PlayerTab>('impact')
+  const formatParam = format
+  const activePlayerTab = playerTabs.find((tab) => tab.key === playerTab)!
+  const fullMembersOnly = format !== 'T20'
+
+  const players = usePlayerList({
+    format: formatParam, sort_by: activePlayerTab.sort, limit: 10,
+    full_members_only: fullMembersOnly, recent_only: true,
   })
-  const matches = useMatchList({ format: format === 'All' ? undefined : format, limit: 8 })
-  const venues = useVenueList({ format: format === 'All' ? undefined : format, limit: 8 })
-  const teams = useTeamList({ format: format === 'All' ? undefined : format, limit: 10 })
+  const teams = useTeamList({
+    format: formatParam, sort_by: 'win_rate', limit: 12,
+    full_members_only: fullMembersOnly, recent_only: true,
+  })
+  const matches = useMatchList({
+    format: formatParam, limit: 6, full_members_only: fullMembersOnly,
+    recent_only: true, completed_only: true,
+  })
+  const venues = useVenueList({ format: formatParam, limit: 8, full_members_only: fullMembersOnly, recent_only: true })
   const live = useLiveMatches()
 
-  const isLoading = players.isLoading || teams.isLoading || matches.isLoading || venues.isLoading
-  const liveMatches = live.data?.data || []
-  const liveAvailable = live.data?.provider_available ?? false
   const playerList = players.data?.players || []
-  const filteredPlayers = playerTab === 'bowling' 
-    ? playerList.filter(p => p.career_wickets != null && p.career_wickets > 0)
-    : playerTab === 'batting'
-    ? playerList.filter(p => p.batting_average != null && p.batting_average > 0)
-    : playerList.filter(p => p.form_score != null)
-
+  const filteredPlayers = playerList.filter((player) => {
+    if (playerTab === 'bowling') return (player.career_wickets || 0) > 0
+    if (playerTab === 'batting') return (player.career_runs || 0) > 0
+    return player.impact_score != null
+  })
+  const matchList = matches.data?.matches || []
+  const teamList = teams.data?.teams || []
+  const venueList = (venues.data?.venues || []).filter((venue) => (venue.total_matches || 0) > 0)
+  const providerMatches = (live.data?.data || []).filter(isFullMemberMatch)
+  const liveMatches = providerMatches.filter((match) => match.status?.toLowerCase() === 'live')
+  const upcomingMatches = providerMatches
+    .filter((match) => ['upcoming', 'scheduled'].includes(match.status?.toLowerCase() || ''))
+    .sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''))
+  const liveCenterMatches = liveMatches.length ? liveMatches : upcomingMatches
+  const liveAvailable = live.data?.provider_available ?? false
+  const featuredPlayer = filteredPlayers[0] || playerList[0]
   return (
-    <div className="space-y-5 hero-gradient">
-      {/* ============================================================
-          HEADER — compact welcome
-          ============================================================ */}
-      <div className="flex items-center justify-between">
+    <div className="dashboard-stage">
+      <div className="dashboard-heading">
         <div>
-          <h1 className="text-xl font-bold text-gray-100">
-            Cricket Intelligence
-          </h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {format === 'All' ? 'All formats' : format} · Powered by 8,250 historical matches
-          </p>
+          <div className="eyebrow"><Sparkles /> Live intelligence workspace</div>
+          <h1>Matchday command center</h1>
+          <p>{format === 'International' ? 'T20I, ODI and Test intelligence' : `${format} intelligence`} from ball-by-ball history and live match signals.</p>
         </div>
-        <div className="hidden sm:flex items-center gap-2 text-[10px] text-gray-600">
-          <Activity className="h-3 w-3" />
-          <span>Data: Cricsheet</span>
+        <div className="dashboard-meta">
+          <span><i className="signal-dot" /> Systems operational</span>
+          <strong>4.13M</strong>
+          <small>deliveries analyzed</small>
         </div>
       </div>
 
-      {/* ============================================================
-          STAT CARDS — summary counts
-          ============================================================ */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {isLoading ? (
-          Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
-        ) : (
-          <>
-            <StatCard 
-              label="Players" value={players.data?.total?.toLocaleString() || '—'} 
-              icon={Users} color="bg-emerald-500/20"
-            />
-            <StatCard 
-              label="Teams" value={teams.data?.total?.toLocaleString() || '—'} 
-              icon={Shield} color="bg-blue-500/20"
-            />
-            <StatCard 
-              label="Matches" value={matches.data?.total?.toLocaleString() || '—'} 
-              icon={Trophy} color="bg-amber-500/20"
-            />
-            <StatCard 
-              label="Venues" value={venues.data?.total?.toLocaleString() || '—'} 
-              icon={MapPin} color="bg-purple-500/20"
-            />
-          </>
-        )}
-      </div>
-
-      {/* ============================================================
-          THREE-COLUMN LAYOUT
-          ============================================================ */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        
-        {/* ============================================================
-            LEFT COLUMN — Top Performers (tabbed)
-            ============================================================ */}
-        <div className="lg:col-span-4">
-          <div className="card-solid overflow-hidden">
-            {/* Header with tabs */}
-            <div className="px-4 pt-4 pb-3 border-b border-white/5">
-              <div className="section-header mb-3">
-                <div className="flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4 text-emerald-400" />
-                  <h2 className="section-title">Top Performers</h2>
+      <div className="dashboard-grid">
+        <aside className="dashboard-left space-y-4">
+          <section className="card-solid overflow-hidden">
+            <div className="panel-header block">
+              <div className="mb-3 flex items-center justify-between">
+                <div>
+                  <p className="panel-kicker">18-month leaderboard</p>
+                  <h2 className="mt-1 font-display text-sm font-semibold text-white">Recent performers</h2>
                 </div>
-                <Link to="/players" className="section-link">
-                  View All
-                </Link>
+                <Link to="/players" className="section-link">See all</Link>
               </div>
-              {/* Tab switcher */}
               <div className="tabs">
-                {PLAYER_TABS.map(tab => (
+                {playerTabs.map((tab) => (
                   <button
                     key={tab.key}
                     onClick={() => setPlayerTab(tab.key)}
@@ -282,200 +232,155 @@ export default function Dashboard() {
                 ))}
               </div>
             </div>
-            
-            {/* Player list */}
-            <div className="max-h-[480px] overflow-y-auto divide-y divide-white/[0.03]">
+            <div className="performer-list">
               {players.isLoading ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="px-4 py-3 space-y-2">
-                    <Skeleton className="h-4 w-3/4" />
-                    <Skeleton className="h-3 w-1/2" />
+                Array.from({ length: 6 }).map((_, index) => (
+                  <div className="flex gap-3 px-4 py-3" key={index}>
+                    <Skeleton className="h-10 w-10 rounded-full" />
+                    <div className="flex-1 space-y-2"><Skeleton className="h-3 w-3/4" /><Skeleton className="h-2 w-1/2" /></div>
                   </div>
                 ))
               ) : players.isError ? (
-                <div className="p-4">
-                  <ErrorCard message="Failed to load player data" onRetry={() => players.refetch()} />
-                </div>
-              ) : filteredPlayers.length > 0 ? (
-                filteredPlayers.slice(0, 8).map((player, idx) => (
-                  <PlayerListItem 
-                    key={player.id} 
-                    player={player} 
-                    rank={idx + 1} 
-                    statLabel={activeTab.sort}
-                  />
+                <ErrorCard message="Player leaderboard is unavailable." onRetry={() => players.refetch()} />
+              ) : filteredPlayers.length ? (
+                filteredPlayers.slice(0, 7).map((player, index) => (
+                  <PerformerRow key={player.id} player={player} index={index} tab={playerTab} format={format} />
                 ))
               ) : (
-                <div className="p-6">
-                  <EmptyState title="No players found" message={`No ${playerTab} data available for this format.`} />
-                </div>
+                <EmptyState title="No player data" message="Choose another format or metric." />
               )}
             </div>
-          </div>
-        </div>
+          </section>
 
-        {/* ============================================================
-            CENTER COLUMN — Live + Recent Matches
-            ============================================================ */}
-        <div className="lg:col-span-5 space-y-4">
-          {/* Live Now */}
-          <div className="card-solid overflow-hidden">
-            <div className="px-4 pt-4 pb-3 border-b border-white/5">
-              <div className="section-header">
-                <div className="flex items-center gap-2">
-                  <Radio className="h-4 w-4 text-emerald-400" />
-                  <h2 className="section-title">Live Now</h2>
-                  {liveAvailable && <span className="live-badge ml-1"><span className="live-dot" /> LIVE</span>}
-                </div>
-                {!liveAvailable && (
-                  <span className="flex items-center gap-1.5 text-[10px] text-gray-600">
-                    <WifiOff className="h-3 w-3" />
-                    Offline
-                  </span>
+          <section className="card-solid overflow-hidden">
+            <div className="panel-header">
+              <div>
+                <p className="panel-kicker">Full Member momentum</p>
+                <h2 className="mt-1 font-display text-sm font-semibold text-white">Recent team strength</h2>
+              </div>
+              <Link to="/teams" className="section-link">See all</Link>
+            </div>
+            <div className="p-3">
+              {teams.isLoading ? <SkeletonCard /> : teamList.slice(0, 4).map((team, index) => (
+                <Link to={`/teams/${team.id}`} key={team.id} className="strength-row group">
+                  <span>{String(index + 1).padStart(2, '0')}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <p className="truncate text-[10px] font-semibold text-gray-200 group-hover:text-brand-300">{team.name}</p>
+                      <strong>{team.win_rate?.toFixed(0) || '—'}%</strong>
+                    </div>
+                    <div className="strength-track"><i style={{ width: `${Math.min(team.win_rate || 0, 100)}%` }} /></div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </section>
+        </aside>
+
+        <div className="dashboard-center space-y-4">
+          <section className="spotlight-card">
+            <div className="spotlight-shade" />
+            <div className="spotlight-topline">
+              <span><CircleDot /> Intelligence spotlight</span>
+              <FormatBadge format={format === 'International' ? 'INTL' : format} />
+            </div>
+            <div className="spotlight-content">
+              <div className="spotlight-copy">
+                <p className="panel-kicker">Featured performer</p>
+                <h2>{featuredPlayer?.full_name || featuredPlayer?.name || 'Cricket Intelligence'}</h2>
+                <p>{featuredPlayer?.team_name || featuredPlayer?.country || 'Historical performance model'}</p>
+                {featuredPlayer && (
+                  <Link to={`/players/${featuredPlayer.id}${format === 'International' ? '' : `?format=${format}`}`} className="btn-primary mt-5 gap-2">
+                    Open player intelligence <ArrowUpRight className="h-3.5 w-3.5" />
+                  </Link>
                 )}
               </div>
+              <PlayerPortrait
+                name={featuredPlayer?.name || 'Cricket Intelligence'}
+                fullName={featuredPlayer?.full_name}
+                imageUrl={featuredPlayer?.image_url}
+                size="spotlight"
+                className="spotlight-monogram"
+                showStatus
+              />
             </div>
-            <div className="p-4">
-              {live.isLoading ? (
-                <div className="space-y-3">
-                  <SkeletonMatch /><SkeletonMatch />
-                </div>
-              ) : liveMatches.length > 0 ? (
-                <div className="space-y-3">
-                  {liveMatches.slice(0, 3).map((match: any) => (
-                    <LiveMatchCard key={match.id} match={match} />
-                  ))}
-                  <Link to="/live" className="flex items-center justify-center gap-1 mt-2 text-xs text-emerald-400 hover:text-emerald-300 transition-colors">
-                    View all live matches <ChevronRight className="h-3 w-3" />
-                  </Link>
-                </div>
-              ) : (
-                <EmptyState
-                  icon={<Radio className="h-8 w-8 text-gray-600" />}
-                  title="No live matches right now"
-                  message={liveAvailable 
-                    ? "Check back later for live match updates." 
-                    : "Configure CRICKETDATA_API_KEY to enable live scores."}
-                />
-              )}
+            <div className="spotlight-stats">
+              <div><strong>{featuredPlayer?.impact_score?.toFixed(1) || '—'}</strong><span>Impact</span></div>
+              <div><strong>{featuredPlayer?.career_runs?.toLocaleString() || '—'}</strong><span>Runs</span></div>
+              <div><strong>{featuredPlayer?.batting_average?.toFixed(1) || '—'}</strong><span>Average</span></div>
+              <div><strong>{featuredPlayer?.strike_rate?.toFixed(1) || '—'}</strong><span>Strike rate</span></div>
             </div>
-          </div>
+          </section>
 
-          {/* Recent Results */}
-          <div className="card-solid overflow-hidden">
-            <div className="px-4 pt-4 pb-3 border-b border-white/5">
-              <div className="section-header">
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-blue-400" />
-                  <h2 className="section-title">Recent Results</h2>
-                </div>
-                <Link to="/matches" className="section-link">View All</Link>
+          <section className="card-solid overflow-hidden">
+            <div className="panel-header">
+              <div>
+                <p className="panel-kicker">Latest outcomes</p>
+                <h2 className="mt-1 font-display text-sm font-semibold text-white">Recent match center</h2>
               </div>
+              <Link to="/matches" className="section-link flex items-center gap-1">All matches <ChevronRight className="h-3 w-3" /></Link>
             </div>
-            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="result-grid">
               {matches.isLoading ? (
-                Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
+                Array.from({ length: 3 }).map((_, index) => <SkeletonCard key={index} />)
               ) : matches.isError ? (
-                <div className="col-span-2 p-4"><ErrorCard message="Failed to load matches" onRetry={() => matches.refetch()} /></div>
-              ) : (matches.data?.matches || []).length > 0 ? (
-                (matches.data?.matches || []).slice(0, 4).map(match => (
-                  <MatchCard key={match.id} match={match} />
-                ))
+                <ErrorCard message="Recent matches are unavailable." onRetry={() => matches.refetch()} />
+              ) : matchList.length ? (
+                matchList.map((match) => <ResultCard key={match.id} match={match} />)
               ) : (
-                <div className="col-span-2"><EmptyState title="No recent matches" message="No match data available." /></div>
+                <EmptyState title="No recent matches" message="No results for this format." />
               )}
             </div>
-          </div>
+          </section>
+
+          <section className="data-ribbon">
+            <div><Users /><span><strong>{players.data?.total?.toLocaleString() || '—'}</strong> players</span></div>
+            <div><Shield /><span><strong>{teams.data?.total?.toLocaleString() || '—'}</strong> teams</span></div>
+            <div><Trophy /><span><strong>{matches.data?.total?.toLocaleString() || '—'}</strong> matches</span></div>
+            <div><MapPin /><span><strong>{venues.data?.total?.toLocaleString() || '—'}</strong> venues</span></div>
+          </section>
         </div>
 
-        {/* ============================================================
-            RIGHT COLUMN — Venue Insights + Team Strength
-            ============================================================ */}
-        <div className="lg:col-span-3 space-y-4">
-          {/* Venue Insights */}
-          <div className="card-solid overflow-hidden">
-            <div className="px-4 pt-4 pb-3 border-b border-white/5">
-              <div className="section-header">
-                <div className="flex items-center gap-2">
-                  <Globe className="h-4 w-4 text-purple-400" />
-                  <h2 className="section-title">Top Venues</h2>
-                </div>
-                <Link to="/venues" className="section-link">View All</Link>
+        <aside className="dashboard-right space-y-4">
+          <section className="card-solid overflow-hidden">
+            <div className="panel-header">
+              <div>
+                <p className="panel-kicker">{liveMatches.length ? 'In play now' : 'Next on the calendar'}</p>
+                <h2 className="mt-1 flex items-center gap-2 font-display text-sm font-semibold text-white">
+                  Live center {liveMatches.length > 0 && <span className="live-dot" />}
+                </h2>
               </div>
+              <Link to="/live" className="section-link">Open</Link>
             </div>
-            <div className="p-3">
-              {venues.isLoading ? (
-                Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="px-3 py-2.5 space-y-2"><Skeleton className="h-4 w-3/4" /><Skeleton className="h-3 w-1/2" /></div>
-                ))
-              ) : venues.isError ? (
-                <div className="p-3"><ErrorCard message="Failed" onRetry={() => venues.refetch()} /></div>
-              ) : (venues.data?.venues || []).filter(v => v.total_matches && v.total_matches > 0).length > 0 ? (
-                (venues.data?.venues || []).filter(v => v.total_matches && v.total_matches > 0).slice(0, 6).map(venue => (
-                  <Link key={venue.id} to={`/venues/${venue.id}`} className="flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-white/[0.03] transition-colors group">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-gray-200 truncate group-hover:text-emerald-400 transition-colors">{venue.name}</p>
-                      <p className="text-[10px] text-gray-500">{venue.city}{venue.country ? `, ${venue.country}` : ''}</p>
-                    </div>
-                    <div className="text-right ml-2">
-                      <p className="text-xs font-bold text-gray-300">{venue.total_matches}</p>
-                      <p className="text-[9px] text-gray-600">matches</p>
-                    </div>
-                  </Link>
-                ))
+            <div className="space-y-2 p-3">
+              {live.isLoading ? <><SkeletonMatch /><SkeletonMatch /></> : liveCenterMatches.length ? (
+                liveCenterMatches.map((match) => <LiveTile key={match.match_id} match={match} />)
               ) : (
-                <div className="p-3"><EmptyState title="No venues" message="No data." /></div>
+                <div className="offline-tile">
+                  <span className="offline-icon">{liveAvailable ? <Radio /> : <WifiOff />}</span>
+                  <h3>{liveAvailable ? 'No upcoming fixtures' : 'Schedule feed unavailable'}</h3>
+                  <p>{liveAvailable ? 'There are no Full Member matches currently listed.' : 'Connect CricketData.org to load live and upcoming matches.'}</p>
+                  <Link to="/live">View live center <ChevronRight /></Link>
+                </div>
               )}
             </div>
-          </div>
+          </section>
 
-          {/* Team Strength */}
-          <div className="card-solid overflow-hidden">
-            <div className="px-4 pt-4 pb-3 border-b border-white/5">
-              <div className="section-header">
-                <div className="flex items-center gap-2">
-                  <Target className="h-4 w-4 text-amber-400" />
-                  <h2 className="section-title">Team Strength</h2>
-                </div>
-                <Link to="/teams" className="section-link">View All</Link>
+          <section className="card-solid overflow-hidden">
+            <div className="panel-header">
+              <div>
+                <p className="panel-kicker">{fullMembersOnly ? 'Latest full-member venues' : 'Latest T20 venues'}</p>
+                <h2 className="mt-1 font-display text-sm font-semibold text-white">Scoring conditions</h2>
               </div>
+              <Link to="/venues" className="section-link">See all</Link>
             </div>
             <div className="p-3">
-              {teams.isLoading ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="px-3 py-2"><Skeleton className="h-4 w-3/4" /></div>
-                ))
-              ) : (teams.data?.teams || []).length > 0 ? (
-                (teams.data?.teams || []).slice(0, 6).map((team, idx) => (
-                  <Link key={team.id} to={`/teams/${team.id}`} className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-white/[0.03] transition-colors group">
-                    <span className="text-[10px] font-bold text-gray-600 w-4">{idx + 1}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-200 truncate group-hover:text-emerald-400 transition-colors">{team.name}</p>
-                      {team.win_rate != null && (
-                        <div className="mt-1 h-1 bg-white/5 rounded-full overflow-hidden">
-                          <div className="h-full bg-emerald-500/60 rounded-full" style={{ width: `${Math.min(team.win_rate, 100)}%` }} />
-                        </div>
-                      )}
-                    </div>
-                    <span className="text-xs font-bold text-gray-400">{team.win_rate != null ? `${team.win_rate.toFixed(0)}%` : '—'}</span>
-                  </Link>
-                ))
-              ) : (
-                <div className="p-3"><EmptyState title="No teams" message="No data." /></div>
-              )}
+              {venues.isLoading ? <SkeletonCard /> : venueList.slice(0, 3).map((venue) => (
+                <VenueConditions venue={venue} key={venue.id} />
+              ))}
             </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="text-center py-4">
-        <p className="text-[10px] text-gray-600">
-          <strong className="text-gray-500">Data:</strong> Historical data from{' '}
-          <a href="https://cricsheet.org" target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:text-emerald-300">Cricsheet</a>
-          {liveAvailable && ' · Live data: CricketData.org'}
-          {' '} · Platform analytics computed from 4.13M match deliveries
-        </p>
+          </section>
+        </aside>
       </div>
     </div>
   )

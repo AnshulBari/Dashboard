@@ -1,26 +1,42 @@
-import { useState } from 'react'
-import { Link, useOutletContext } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import { Users, Search } from 'lucide-react'
 import { usePlayerList } from '@/hooks/useQueries'
 import { Skeleton } from '@/components/ui/Skeleton'
 import ErrorCard from '@/components/ui/ErrorCard'
 import EmptyState from '@/components/ui/EmptyState'
+import PlayerPortrait from '@/components/ui/PlayerPortrait'
 interface PageContext { format: string }
 
 export default function Players() {
   const { format } = useOutletContext<PageContext>()
-  const [search, setSearch] = useState('')
-  const [sortBy, setSortBy] = useState('form_score')
+  const [searchParams] = useSearchParams()
+  const [search, setSearch] = useState(searchParams.get('search') || '')
+  const [debouncedSearch, setDebouncedSearch] = useState(search)
+  const [sortBy, setSortBy] = useState('impact_score')
+
+  useEffect(() => {
+    setSearch(searchParams.get('search') || '')
+  }, [searchParams])
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedSearch(search.trim()), 250)
+    return () => window.clearTimeout(timeout)
+  }, [search])
 
   const players = usePlayerList({
-    format: format === 'All' ? undefined : format,
+    format,
+    search: debouncedSearch || undefined,
     sort_by: sortBy,
     limit: 50,
   })
 
   const playerList = players.data?.players || []
   const filtered = search
-    ? playerList.filter(p => p.name?.toLowerCase().includes(search.toLowerCase()))
+    ? playerList.filter(p =>
+        p.name?.toLowerCase().includes(search.toLowerCase())
+        || p.full_name?.toLowerCase().includes(search.toLowerCase())
+      )
     : playerList
 
   return (
@@ -31,7 +47,7 @@ export default function Players() {
           Players
         </h1>
         <p className="page-subtitle">
-          {players.data?.total?.toLocaleString() || '—'} players · {format === 'All' ? 'All formats' : format}
+          {players.data?.total?.toLocaleString() || '—'} players · {format === 'International' ? 'T20I + ODI + Test' : format}
         </p>
       </div>
 
@@ -52,7 +68,7 @@ export default function Players() {
           onChange={(e) => setSortBy(e.target.value)}
           className="form-select w-full sm:w-40"
         >
-          <option value="form_score">Form Score</option>
+          <option value="impact_score">Impact Score</option>
           <option value="batting_average">Batting Average</option>
           <option value="strike_rate">Strike Rate</option>
           <option value="career_runs">Career Runs</option>
@@ -77,30 +93,28 @@ export default function Players() {
           {filtered.map((player) => (
             <Link
               key={player.id}
-              to={`/players/${player.id}`}
+              to={`/players/${player.id}${format === 'International' ? '' : `?format=${format}`}`}
               className="card-solid p-4 hover:bg-white/[0.04] transition-all duration-200 group"
             >
               <div className="flex items-start justify-between mb-2">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500/20 to-blue-500/20 flex items-center justify-center text-sm font-bold text-gray-300 border border-white/10">
-                    {player.name?.charAt(0) || '?'}
-                  </div>
+                  <PlayerPortrait name={player.name} fullName={player.full_name} imageUrl={player.image_url} size="sm" />
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-gray-200 truncate group-hover:text-emerald-400 transition-colors">
-                      {player.name}
+                      {player.full_name || player.name}
                     </p>
                     <p className="text-[11px] text-gray-500 truncate">
                       {player.team_name || player.country || '—'}
                     </p>
                   </div>
                 </div>
-                {player.form_score != null && (
+                {player.impact_score != null && (
                   <span className={`inline-flex items-center justify-center w-9 h-9 rounded-full text-xs font-bold ${
-                    player.form_score >= 70 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
-                    player.form_score >= 50 ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30' :
+                    player.impact_score >= 70 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
+                    player.impact_score >= 50 ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30' :
                     'bg-amber-500/15 text-amber-400 border border-amber-500/30'
                   }`}>
-                    {player.form_score.toFixed(0)}
+                    {player.impact_score.toFixed(0)}
                   </span>
                 )}
               </div>

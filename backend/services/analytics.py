@@ -20,6 +20,7 @@ from typing import Optional
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+from backend.utils.stat_invariants import sanitize_stat_record
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 def _query(conn, sql: str, params: dict = None) -> list[dict]:
     """Execute a query and return list of dicts."""
     rows = conn.execute(text(sql), params or {}).fetchall()
-    return [dict(r._mapping) for r in rows]
+    return [sanitize_stat_record(dict(r._mapping)) for r in rows]
 
 
 def _scalar(conn, sql: str, params: dict = None):
@@ -62,16 +63,16 @@ def player_career(conn, player_id: str) -> dict:
     bowling = _query(
         conn,
         """SELECT format, matches, innings, overs, wickets, runs_conceded,
-                  bowling_average, economy, strike_rate, best_bowling,
-                  four_wickets, five_wickets
+                  bowling_average, economy, strike_rate,
+                  NULL AS best_bowling, NULL AS four_wickets, NULL AS five_wickets
            FROM player_bowling_stats
            WHERE player_id = :pid AND period = 'career'
            ORDER BY format""",
         {"pid": player_id},
     )
-    form = _query(
+    impact = _query(
         conn,
-        """SELECT format, form_score, recent_innings_count
+        """SELECT format, form_score AS impact_score, recent_innings_count
            FROM player_form WHERE player_id = :pid ORDER BY format""",
         {"pid": player_id},
     )
@@ -79,7 +80,7 @@ def player_career(conn, player_id: str) -> dict:
         "player_id": player_id,
         "batting": {r["format"]: r for r in batting},
         "bowling": {r["format"]: r for r in bowling},
-        "form": {r["format"]: r for r in form},
+        "impact": {r["format"]: r for r in impact},
     }
 
 
