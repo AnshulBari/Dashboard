@@ -115,9 +115,11 @@ class TestDashboardSummary:
         response = client.get("/api/dashboard/summary")
         data = response.json()
         counts = data["counts"]
-        assert counts["players"] == 5734
+        assert counts["players"] == 5735
         assert counts["teams"] == 127
-        assert counts["matches"] == 8232
+        # The dashboard defaults to International (T20I + ODI + Test), not the
+        # all-format corpus total asserted by the repository integrity tests.
+        assert counts["matches"] == 6989
         assert counts["venues"] == 462
 
     def test_dashboard_summary_limits(self, client):

@@ -37,24 +37,16 @@ def main() -> None:
                 item["recent_innings_count"], item.get("last_match_date"),
             ))
 
+        # Replace rather than upsert so aliases removed from the authoritative
+        # career aggregates cannot survive indefinitely in player_form.
+        conn.execute("DELETE FROM player_form")
         conn.executemany(
             """INSERT INTO player_form
                (id, player_id, format, form_score, recent_performance_component,
                 consistency_component, opposition_strength_component,
                 venue_performance_component, match_situation_component,
                 efficiency_component, recent_innings_count, last_match_date)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(player_id, format) DO UPDATE SET
-                 form_score=excluded.form_score,
-                 recent_performance_component=excluded.recent_performance_component,
-                 consistency_component=excluded.consistency_component,
-                 opposition_strength_component=excluded.opposition_strength_component,
-                 venue_performance_component=excluded.venue_performance_component,
-                 match_situation_component=excluded.match_situation_component,
-                 efficiency_component=excluded.efficiency_component,
-                 recent_innings_count=excluded.recent_innings_count,
-                 last_match_date=excluded.last_match_date,
-                 last_calculated_at=CURRENT_TIMESTAMP""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         conn.commit()

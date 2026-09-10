@@ -51,7 +51,110 @@ def _remote_columns(cursor, table: str) -> set[str]:
     return {row[0] for row in cursor.fetchall()}
 
 
-def _replace_table(cursor, local: sqlite3.Connection, table: str) -> int:
+def _identity_key(values) -> tuple[str, ...]:
+    return tuple(" ".join(str(value or "").strip().casefold().split()) for value in values)
+
+
+def _entity_id_map(
+    cursor, local: sqlite3.Connection, table: str, identity_columns: tuple[str, ...]
+) -> tuple[dict[str, str], int, int]:
+    column_sql = ", ".join(identity_columns)
+    local_rows = local.execute(f"SELECT id, {column_sql} FROM {table}").fetchall()
+    remote_query = sql.SQL("SELECT id::text, {} FROM {}").format(
+        sql.SQL(", ").join(map(sql.Identifier, identity_columns)),
+        sql.Identifier(table),
+    )
+    cursor.execute(remote_query)
+    remote_rows = cursor.fetchall()
+    remote_ids = {str(row[0]) for row in remote_rows}
+    remote_by_key = {_identity_key(row[1:]): str(row[0]) for row in remote_rows}
+    mapping = {}
+    for row in local_rows:
+        local_id = str(row[0])
+        # Stable shared UUIDs are the strongest identity signal. Fall back to
+        # canonical entity fields only for databases produced by different
+        # identity-merge runs.
+        if local_id in remote_ids:
+            mapping[local_id] = local_id
+        elif _identity_key(row[1:]) in remote_by_key:
+            mapping[local_id] = remote_by_key[_identity_key(row[1:])]
+    return mapping, len(local_rows), len(remote_rows)
+
+
+def _player_id_map(cursor, local: sqlite3.Connection):
+    local_rows = local.execute(
+        "SELECT id, canonical_name, full_name FROM players"
+    ).fetchall()
+    cursor.execute("SELECT id::text, canonical_name, full_name FROM players")
+    remote_rows = cursor.fetchall()
+    remote_ids = {str(row[0]) for row in remote_rows}
+
+    local_names: dict[str, set[str]] = {
+        str(row[0]): {
+            _identity_key((value,))[0] for value in row[1:] if value
+        }
+        for row in local_rows
+    }
+    for player_id, variant in local.execute(
+        "SELECT player_id, name_variant FROM player_name_mappings"
+    ):
+        if player_id in local_names and variant:
+            local_names[player_id].add(_identity_key((variant,))[0])
+
+    remote_canonical: dict[str, set[str]] = {}
+    remote_names: dict[str, set[str]] = {}
+    remote_aliases: dict[str, set[str]] = {}
+    remote_labels = {}
+    for player_id, canonical, full_name in remote_rows:
+        player_id = str(player_id)
+        remote_labels[player_id] = canonical
+        if canonical:
+            key = _identity_key((canonical,))[0]
+            remote_canonical.setdefault(key, set()).add(player_id)
+        for value in (canonical, full_name):
+            if value:
+                remote_names.setdefault(_identity_key((value,))[0], set()).add(player_id)
+    cursor.execute("SELECT player_id::text, name_variant FROM player_name_mappings")
+    for player_id, variant in cursor.fetchall():
+        if variant:
+            remote_aliases.setdefault(_identity_key((variant,))[0], set()).add(str(player_id))
+
+    mapping = {}
+    changed = []
+    local_labels = {str(row[0]): row[1] for row in local_rows}
+    local_full_names = {str(row[0]): row[2] for row in local_rows}
+    for local_id, names in local_names.items():
+        if local_id in remote_ids:
+            mapping[local_id] = local_id
+            continue
+        canonical_key = _identity_key((local_labels[local_id],))[0]
+        candidates = remote_canonical.get(canonical_key, set())
+        if len(candidates) != 1 and local_full_names.get(local_id):
+            full_key = _identity_key((local_full_names[local_id],))[0]
+            candidates = remote_names.get(full_key, set())
+        if len(candidates) != 1:
+            # Alias mappings are the weakest signal because initials can be
+            # shared. Prefer an unambiguous mapping for the local canonical
+            # label before considering all recorded variants.
+            candidates = remote_aliases.get(canonical_key, set())
+        if len(candidates) != 1:
+            candidates = set()
+            for name in names:
+                candidates.update(remote_names.get(name, set()))
+                candidates.update(remote_aliases.get(name, set()))
+        if len(candidates) == 1:
+            remote_id = next(iter(candidates))
+            mapping[local_id] = remote_id
+            remote_label = remote_labels.get(remote_id, remote_id)
+            if _identity_key((local_labels[local_id],)) != _identity_key((remote_label,)):
+                changed.append((local_labels[local_id], remote_label))
+    return mapping, len(local_rows), len(remote_rows), changed
+
+
+def _replace_table(
+    cursor, local: sqlite3.Connection, table: str,
+    foreign_keys: dict[str, dict[str, str]],
+) -> tuple[int, int]:
     local_columns, local_rows = _local_table(local, table)
     remote_columns = _remote_columns(cursor, table)
     if not remote_columns:
@@ -59,7 +162,27 @@ def _replace_table(cursor, local: sqlite3.Connection, table: str) -> int:
 
     selected = [name for name in local_columns if name in remote_columns]
     indices = [local_columns.index(name) for name in selected]
-    rows = [tuple(row[index] for index in indices) for row in local_rows]
+    rows = []
+    skipped = 0
+    for local_row in local_rows:
+        row = [local_row[index] for index in indices]
+        valid = True
+        for column, mapping in foreign_keys.items():
+            if column not in selected:
+                continue
+            index = selected.index(column)
+            value = row[index]
+            if value is None:
+                continue
+            mapped = mapping.get(str(value))
+            if not mapped:
+                valid = False
+                break
+            row[index] = mapped
+        if valid:
+            rows.append(tuple(row))
+        else:
+            skipped += 1
 
     cursor.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(table)))
     if rows:
@@ -68,7 +191,76 @@ def _replace_table(cursor, local: sqlite3.Connection, table: str) -> int:
             sql.SQL(", ").join(map(sql.Identifier, selected)),
         )
         execute_values(cursor, statement.as_string(cursor), rows, page_size=1000)
+    return len(rows), skipped
+
+
+def _referenced_player_ids(local: sqlite3.Connection) -> set[str]:
+    rows = local.execute(
+        """SELECT player_id FROM player_batting_stats
+           UNION SELECT player_id FROM player_bowling_stats
+           UNION SELECT player_id FROM player_recent_stats
+           UNION SELECT player_id FROM player_form
+           UNION SELECT batter_id FROM batter_bowler_matchups
+           UNION SELECT bowler_id FROM batter_bowler_matchups"""
+    ).fetchall()
+    return {str(row[0]) for row in rows if row[0]}
+
+
+def _insert_required_players(
+    cursor, local: sqlite3.Connection, player_ids: dict[str, str],
+    team_ids: dict[str, str], required_ids: set[str],
+) -> int:
+    if not required_ids:
+        return 0
+    local_columns = [row[1] for row in local.execute("PRAGMA table_info(players)")]
+    remote_columns = _remote_columns(cursor, "players")
+    selected = [name for name in local_columns if name in remote_columns]
+    placeholders = ",".join("?" for _ in required_ids)
+    source_rows = local.execute(
+        f"SELECT * FROM players WHERE id IN ({placeholders})", tuple(required_ids)
+    ).fetchall()
+    rows = []
+    for source in source_rows:
+        row = [source[local_columns.index(column)] for column in selected]
+        if "team_id" in selected:
+            index = selected.index("team_id")
+            if row[index] is not None:
+                row[index] = team_ids.get(str(row[index]))
+        if "is_active" in selected:
+            index = selected.index("is_active")
+            row[index] = bool(row[index])
+        rows.append(tuple(row))
+    statement = sql.SQL("INSERT INTO players ({}) VALUES %s ON CONFLICT (id) DO NOTHING").format(
+        sql.SQL(", ").join(map(sql.Identifier, selected))
+    )
+    execute_values(cursor, statement.as_string(cursor), rows, page_size=100)
+    for player_id in required_ids:
+        player_ids[player_id] = player_id
     return len(rows)
+
+
+def _ensure_remote_analytics_schema(cursor) -> None:
+    """Apply additive schema required by the current read-only API routes."""
+    cursor.execute(
+        """CREATE TABLE IF NOT EXISTS player_recent_stats (
+               player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+               format VARCHAR(20) NOT NULL,
+               window_start DATE NOT NULL,
+               last_match_date DATE,
+               matches INTEGER DEFAULT 0,
+               batting_innings INTEGER DEFAULT 0,
+               runs INTEGER DEFAULT 0,
+               balls_faced INTEGER DEFAULT 0,
+               bowling_innings INTEGER DEFAULT 0,
+               wickets INTEGER DEFAULT 0,
+               balls_bowled INTEGER DEFAULT 0,
+               runs_conceded INTEGER DEFAULT 0,
+               PRIMARY KEY (player_id, format)
+           )"""
+    )
+    cursor.execute(
+        "ALTER TABLE player_form ADD COLUMN IF NOT EXISTS last_match_date DATE"
+    )
 
 
 def main() -> None:
@@ -97,8 +289,50 @@ def main() -> None:
                 table: local.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
                 for table in TABLES
             }
+            player_ids, local_players, remote_players, player_remaps = _player_id_map(
+                cursor, local
+            )
+            team_ids, local_teams, remote_teams = _entity_id_map(
+                cursor, local, "teams", ("canonical_name",)
+            )
+            venue_ids, local_venues, remote_venues = _entity_id_map(
+                cursor, local, "venues", ("name",)
+            )
             print(f"PostgreSQL matches: {remote_match_count:,}")
             print(f"Reconstructed matches to remove: {fixture_count}")
+            print(
+                f"Identity maps: players {len(player_ids):,}/{local_players:,} local "
+                f"({remote_players:,} remote), teams {len(team_ids):,}/{local_teams:,} local "
+                f"({remote_teams:,} remote), venues {len(venue_ids):,}/{local_venues:,} local "
+                f"({remote_venues:,} remote)"
+            )
+            missing_players = local.execute(
+                "SELECT canonical_name FROM players ORDER BY canonical_name"
+            ).fetchall()
+            missing_players = [
+                row[0] for row in missing_players
+                if local.execute(
+                    "SELECT id FROM players WHERE canonical_name = ?", (row[0],)
+                ).fetchone()[0] not in player_ids
+            ]
+            if missing_players:
+                print("Local-only player identities: " + ", ".join(missing_players))
+            if player_remaps:
+                print(
+                    "Alias remaps: "
+                    + ", ".join(f"{source} -> {target}" for source, target in player_remaps)
+                )
+            required_new_player_ids = _referenced_player_ids(local) - set(player_ids)
+            if required_new_player_ids:
+                placeholders = ",".join("?" for _ in required_new_player_ids)
+                required_names = [
+                    row[0] for row in local.execute(
+                        f"SELECT canonical_name FROM players WHERE id IN ({placeholders}) "
+                        "ORDER BY canonical_name",
+                        tuple(required_new_player_ids),
+                    )
+                ]
+                print("Required new player identities: " + ", ".join(required_names))
             for table, count in local_counts.items():
                 print(f"  {table}: {count:,} local rows")
 
@@ -106,6 +340,13 @@ def main() -> None:
                 remote.rollback()
                 print("Dry run only; pass --apply to synchronize PostgreSQL.")
                 return
+
+            inserted_players = _insert_required_players(
+                cursor, local, player_ids, team_ids, required_new_player_ids
+            )
+            if inserted_players:
+                print(f"  inserted required player identities: {inserted_players}", flush=True)
+            _ensure_remote_analytics_schema(cursor)
 
             cursor.execute(
                 "SELECT id FROM matches WHERE external_id = ANY(%s)",
@@ -117,18 +358,37 @@ def main() -> None:
                     "match_batting_summary", "match_bowling_summary",
                     "deliveries", "innings",
                 ):
+                    if not _remote_columns(cursor, table):
+                        print(f"  skipped absent compact table: {table}", flush=True)
+                        continue
                     cursor.execute(
-                        sql.SQL("DELETE FROM {} WHERE match_id = ANY(%s)").format(
+                        sql.SQL("DELETE FROM {} WHERE match_id = ANY(%s::uuid[])").format(
                             sql.Identifier(table)
                         ),
                         (match_ids,),
                     )
-                cursor.execute("DELETE FROM matches WHERE id = ANY(%s)", (match_ids,))
+                cursor.execute("DELETE FROM matches WHERE id = ANY(%s::uuid[])", (match_ids,))
 
             written = {}
+            key_maps = {
+                "player_batting_stats": {"player_id": player_ids},
+                "player_bowling_stats": {"player_id": player_ids},
+                "batter_bowler_matchups": {
+                    "batter_id": player_ids, "bowler_id": player_ids,
+                },
+                "player_recent_stats": {"player_id": player_ids},
+                "player_form": {"player_id": player_ids},
+                "team_performance": {"team_id": team_ids},
+                "venue_stats": {"venue_id": venue_ids},
+            }
             for table in TABLES:
-                written[table] = _replace_table(cursor, local, table)
-                print(f"  synchronized {table}: {written[table]:,}", flush=True)
+                count, skipped = _replace_table(cursor, local, table, key_maps[table])
+                written[table] = count
+                print(
+                    f"  synchronized {table}: {count:,}"
+                    + (f" ({skipped:,} unresolved rows rejected)" if skipped else ""),
+                    flush=True,
+                )
 
             cursor.execute("SELECT COUNT(*) FROM matches")
             final_matches = cursor.fetchone()[0]

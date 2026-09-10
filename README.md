@@ -37,7 +37,7 @@ The platform ingests **ball-by-ball cricket data** from [Cricsheet](https://cric
 |--------|-------|
 | Matches | 8,232 (1,243 IPL + 3,528 T20I + 2,569 ODI + 892 Test) |
 | Deliveries | 4,171,403 official source deliveries |
-| Players | 5,734 (discovered from match data) |
+| Players | 5,735 canonical serving identities |
 | Teams | 127 (14 IPL franchises + 110 national + 3 composite) |
 | Venues | 462 |
 | Competitions | 12 (IPL, World Cup, Champions Trophy, Ashes, bilateral) |

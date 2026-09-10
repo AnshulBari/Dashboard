@@ -24,6 +24,7 @@ from data_pipeline.pipeline.analytics import (
 from data_pipeline.pipeline.reader import flatten_match, normalize_result_type
 from data_pipeline.pipeline.player_identity import normalize_player_names
 from data_pipeline.pipeline.scorecards import compute_scorecard_from_json
+from data_pipeline.pipeline.impact import compute_impact_scores_from_aggregates
 
 
 def test_player_image_resolver_uses_register_identity_and_rejects_unknown_names():
@@ -57,6 +58,25 @@ def test_serving_guard_repairs_impossible_stat_relationships():
     assert record["boundaries"] == 0
     assert record["total_wickets"] == 6
     assert record["boundary_pct"] == 100
+
+
+def test_impact_rebuild_does_not_preserve_prior_only_aliases():
+    prior = pd.DataFrame([{
+        "player_id": "stale-alias", "format": "Test", "form_score": 99.0,
+    }])
+    batting = pd.DataFrame([{
+        "player_id": "canonical", "format": "Test", "period": "career",
+        "matches": 1, "innings": 1, "runs": 50, "balls_faced": 100,
+        "batting_average": 50.0, "strike_rate": 50.0,
+    }])
+
+    result = compute_impact_scores_from_aggregates(
+        prior, batting, pd.DataFrame(), pd.DataFrame()
+    )
+
+    assert result[["player_id", "format"]].to_dict("records") == [
+        {"player_id": "canonical", "format": "Test"}
+    ]
 
 
 def _delivery_rows() -> pd.DataFrame:

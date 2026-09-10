@@ -72,8 +72,11 @@ def compute_impact_scores_from_aggregates(
     aggregates supply current form. Percentile ranking is format-local, while
     confidence shrinkage prevents tiny samples from topping leaderboards.
     """
+    # Prior components enrich current players but must never keep an obsolete
+    # alias identity alive after a source/identity rebuild. Only current career
+    # or rolling aggregates define which player-format rows exist.
     sources = [frame[["player_id", "format"]] for frame in (
-        prior_components, batting_stats, bowling_stats, recent_stats
+        batting_stats, bowling_stats, recent_stats
     ) if not frame.empty]
     if not sources:
         return pd.DataFrame()
