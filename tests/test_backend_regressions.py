@@ -154,6 +154,25 @@ def test_non_striker_run_out_counts_as_the_dismissed_players_out():
     assert stats.loc["Striker", "not_outs"] == 1
 
 
+def test_json_scorecard_attributes_non_striker_run_out():
+    batting, _ = compute_scorecard_from_json({
+        "innings": [{"overs": [{"over": 0, "deliveries": [
+            {
+                "batter": "Runner", "non_striker": "Striker", "bowler": "Bowler",
+                "runs": {"batter": 1, "extras": 0, "total": 1},
+            },
+            {
+                "batter": "Striker", "non_striker": "Runner", "bowler": "Bowler",
+                "runs": {"batter": 0, "extras": 0, "total": 0},
+                "wickets": [{"kind": "run out", "player_out": "Runner"}],
+            },
+        ]}]}],
+    })
+
+    assert batting[(0, "Runner")]["is_not_out"] is False
+    assert batting[(0, "Striker")]["is_not_out"] is True
+
+
 def test_all_run_fours_are_not_counted_as_boundaries():
     row = _delivery_rows().iloc[[0]].copy()
     row["extra_type"] = None

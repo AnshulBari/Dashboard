@@ -35,24 +35,24 @@ The platform ingests **ball-by-ball cricket data** from [Cricsheet](https://cric
 
 | Metric | Value |
 |--------|-------|
-| Matches | 8,250 (1,243 IPL + 3,533 T20I + 2,577 ODI + 897 Test) |
-| Deliveries | 4,130,065 |
+| Matches | 8,232 (1,243 IPL + 3,528 T20I + 2,569 ODI + 892 Test) |
+| Deliveries | 4,171,403 official source deliveries |
 | Players | 5,734 (discovered from match data) |
 | Teams | 127 (14 IPL franchises + 110 national + 3 composite) |
 | Venues | 462 |
 | Competitions | 12 (IPL, World Cup, Champions Trophy, Ashes, bilateral) |
-| Batting stats | 8,005 player-format records |
-| Bowling stats | 6,062 player-format records |
-| Batter-bowler matchups | 82,804 |
+| Batting stats | 8,475 player-format records |
+| Bowling stats | 6,092 player-format records |
+| Batter-bowler matchups | 101,318 |
 | Player-team affiliations | 9,198 |
 
 **Formats supported:** IPL T20 · International T20I · ODI · Test
 
 **Datasets loaded (offline source of truth):**
 - **IPL T20:** 1,243 matches / 295,732 deliveries
-- **International T20I:** 3,533 matches / 837,087 deliveries
-- **ODI:** 2,577 matches / 1,477,207 deliveries
-- **Test:** 897 matches / 1,518,699 deliveries
+- **International T20I:** 3,528 matches / 795,382 deliveries
+- **ODI:** 2,569 matches / 1,362,695 deliveries
+- **Test:** 892 matches / 1,717,594 deliveries
 
 **Production database (compact serving layer):** 143 MB on Supabase Free Plan
 - All analytics, scorecards, and entity data served from compact tables
@@ -1015,19 +1015,19 @@ Prepared the Cricsheet historical T20I dataset for ingestion. Created `prepare.p
 
 ### Phase 5.3B: T20I Historical Pilot + Controlled Batch Ingestion ✅
 
-Successfully ingested 3,533 historical T20I matches (837,087 deliveries) through controlled batches of 250 matches. Resolved: innings_number constraint (super overs), analytics query timeout (chunked loading), 38 duplicate player identities, 236 missing affiliations. Full audit: 78 checks, 0 failures. 278/278 tests passing (+ 13 skipped). IPL regression preserved (1,243 matches / 295,732 deliveries / Kohli 9,346 runs).
+Successfully ingested the T20I historical corpus through controlled batches of 250 matches. A later source-integrity audit isolated 5 reconstructed validation fixtures; the authoritative corpus contains 3,528 matches / 795,382 deliveries. Resolved: innings_number constraint (super overs), analytics query timeout (chunked loading), duplicate player identities, and missing affiliations.
 
 ### Phase 5.4: Historical ODI Dataset Ingestion ✅
 
-Successfully ingested 2,577 historical men's ODI matches (1,477,207 deliveries) through controlled batches of 250 matches. Recomputed full-format analytics from 52 chunks (50 matches each). Merged 34 duplicate player identities, 5 duplicate venues, and 13,835+ FK references. Full audit: 78 checks, 0 failures. 278/278 tests passing (+ 13 skipped). IPL/T20I/Test regression preserved. Platform now supports 7,358 matches and 2.61M deliveries across all formats.
+Successfully ingested the men's ODI historical corpus through controlled batches of 250 matches. A later source-integrity audit isolated 8 reconstructed validation fixtures; the authoritative corpus contains 2,569 matches / 1,362,695 deliveries. Full-format analytics were rebuilt from official Cricsheet files only.
 
 ### Phase 5.5: Historical Test Dataset Ingestion ✅
 
-Successfully ingested 897 historical men's Test matches (1,518,699 deliveries) through controlled batches of 250 matches. Fixed innings victory classification (168 matches corrected from 'runs' to 'innings' win_type). Recomputed full Test analytics (1,069 batting, 791 bowling) using batched INSERT...SELECT. Full audit: 78 checks, 0 failures. All 278+ tests passing. IPL/T20I/ODI regression preserved. Platform now supports 8,250 matches and 4.13M deliveries across all formats.
+Successfully ingested the men's Test historical corpus. A later source-integrity audit isolated 5 reconstructed validation fixtures and fixed non-striker run-out attribution; the authoritative corpus contains 892 matches / 1,717,594 deliveries. Player career analytics are rebuilt directly from numeric Cricsheet source files. Platform coverage is 8,232 matches / 4,171,403 source deliveries across all formats.
 
 ### Phase 5.6A: Production Data Layer Optimization ✅
 
-Removed 4.13M delivery records from Supabase (1,110 MB → 143 MB, -87%). Created compact scorecard tables (match_batting_summary, match_bowling_summary) preserving per-player match statistics. Raw Cricsheet data retained offline as source of truth. Database now fits comfortably within Supabase Free Plan (500 MB limit).
+Removed the multi-million-row delivery table from Supabase (1,110 MB → 143 MB, -87%). Created compact scorecard tables preserving per-player match statistics. The 4,171,403 official Cricsheet source deliveries remain offline as the rebuildable source of truth.
 
 ### Phase 5.6B: Serving Database Validation & API Hardening ✅
 

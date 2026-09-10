@@ -15,7 +15,12 @@ representing all critical Test cricket scenarios.
 import json
 import os
 
-OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "raw", "test")
+# Synthetic validation matches must never share the production Cricsheet
+# directory. Keeping them isolated prevents fabricated scorecards from being
+# ingested into career statistics.
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "..", "data", "raw", "fixtures", "test"
+)
 
 
 def delivery(batter, bowler, runs, extras=None, wickets=None, non_striker=""):

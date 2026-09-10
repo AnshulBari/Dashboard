@@ -364,7 +364,7 @@ class TestOtherAnalyticsAPI:
         client = TestClient(app)
         resp = client.get("/api/analytics/data-completeness")
         assert resp.status_code == 200
-        assert resp.json()["total_matches"] == 8250
+        assert resp.json()["total_matches"] == 8232
 
 
 # ============================================================
@@ -409,16 +409,16 @@ class TestRegressionAPI:
         assert runs == 9346
 
     def test_total_matches(self):
-        assert _scalar("SELECT COUNT(*) FROM matches") == 8250
+        assert _scalar("SELECT COUNT(*) FROM matches") == 8232
 
     def test_t20i_count(self):
-        assert _scalar("SELECT COUNT(*) FROM matches WHERE format='T20I'") == 3533
+        assert _scalar("SELECT COUNT(*) FROM matches WHERE format='T20I'") == 3528
 
     def test_odi_count(self):
-        assert _scalar("SELECT COUNT(*) FROM matches WHERE format='ODI'") == 2577
+        assert _scalar("SELECT COUNT(*) FROM matches WHERE format='ODI'") == 2569
 
     def test_test_count(self):
-        assert _scalar("SELECT COUNT(*) FROM matches WHERE format='Test'") == 897
+        assert _scalar("SELECT COUNT(*) FROM matches WHERE format='Test'") == 892
 
 
 # ============================================================

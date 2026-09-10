@@ -204,7 +204,7 @@ export default function Dashboard() {
         </div>
         <div className="dashboard-meta">
           <span><i className="signal-dot" /> Systems operational</span>
-          <strong>4.13M</strong>
+          <strong>4.17M</strong>
           <small>deliveries analyzed</small>
         </div>
       </div>

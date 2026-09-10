@@ -877,7 +877,7 @@ class TestRegressionCounts:
                 text("SELECT COUNT(*) FROM matches WHERE format = 'T20I'")
             ).scalar()
         engine.dispose()
-        assert count == 3533, f"T20I matches: expected 3533, got {count}"
+        assert count == 3528, f"T20I matches: expected 3528, got {count}"
 
     def test_odi_match_count(self):
         engine = _get_engine()
@@ -886,7 +886,7 @@ class TestRegressionCounts:
                 text("SELECT COUNT(*) FROM matches WHERE format = 'ODI'")
             ).scalar()
         engine.dispose()
-        assert count == 2577, f"ODI matches: expected 2577, got {count}"
+        assert count == 2569, f"ODI matches: expected 2569, got {count}"
 
     def test_test_match_count(self):
         engine = _get_engine()
@@ -895,7 +895,7 @@ class TestRegressionCounts:
                 text("SELECT COUNT(*) FROM matches WHERE format = 'Test'")
             ).scalar()
         engine.dispose()
-        assert count == 897, f"Test matches: expected 897, got {count}"
+        assert count == 892, f"Test matches: expected 892, got {count}"
 
     def test_kohli_ipl_runs(self):
         engine = _get_engine()
@@ -917,7 +917,7 @@ class TestRegressionCounts:
         with engine.connect() as conn:
             count = conn.execute(text("SELECT COUNT(*) FROM matches")).scalar()
         engine.dispose()
-        assert count == 8250, f"Total matches: expected 8250, got {count}"
+        assert count == 8232, f"Total matches: expected 8232, got {count}"
 
 
 # ============================================================

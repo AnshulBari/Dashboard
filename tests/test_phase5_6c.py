@@ -171,8 +171,8 @@ class TestFormatIsolation:
             formats = {r[0]: r[1] for r in rows}
             assert len(formats) == 4, f"Kohli should have 4 formats, got {len(formats)}"
             assert formats.get('T20', 0) > 9000, "Kohli T20 runs too low"
-            assert formats.get('ODI', 0) > 15000, "Kohli ODI runs too low"
-            assert formats.get('Test', 0) > 8000, "Kohli Test runs too low"
+            assert formats.get('ODI', 0) == 14819, "Kohli ODI source total changed"
+            assert formats.get('Test', 0) == 9230, "Kohli Test source total changed"
         engine.dispose()
 
     def test_no_cross_format_matchup_duplicates(self):
@@ -218,21 +218,21 @@ class TestRegression:
         engine = _get_engine()
         with engine.connect() as conn:
             count = conn.execute(text("SELECT COUNT(*) FROM matches WHERE format = 'T20I'")).scalar()
-            assert count == 3533, f"T20I matches: expected 3533, got {count}"
+            assert count == 3528, f"T20I matches: expected 3528, got {count}"
         engine.dispose()
 
     def test_odi_matches(self):
         engine = _get_engine()
         with engine.connect() as conn:
             count = conn.execute(text("SELECT COUNT(*) FROM matches WHERE format = 'ODI'")).scalar()
-            assert count == 2577, f"ODI matches: expected 2577, got {count}"
+            assert count == 2569, f"ODI matches: expected 2569, got {count}"
         engine.dispose()
 
     def test_test_matches(self):
         engine = _get_engine()
         with engine.connect() as conn:
             count = conn.execute(text("SELECT COUNT(*) FROM matches WHERE format = 'Test'")).scalar()
-            assert count == 897, f"Test matches: expected 897, got {count}"
+            assert count == 892, f"Test matches: expected 892, got {count}"
         engine.dispose()
 
     def test_database_size(self):

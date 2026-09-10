@@ -22,7 +22,7 @@ import json
 import os
 from pathlib import Path
 
-OUTPUT_DIR = Path("data/raw/t20i_fixtures")
+OUTPUT_DIR = Path("data/raw/fixtures/t20i")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 

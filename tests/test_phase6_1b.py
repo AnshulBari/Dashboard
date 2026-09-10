@@ -117,7 +117,7 @@ class TestDashboardSummary:
         counts = data["counts"]
         assert counts["players"] == 5734
         assert counts["teams"] == 127
-        assert counts["matches"] == 8250
+        assert counts["matches"] == 8232
         assert counts["venues"] == 462
 
     def test_dashboard_summary_limits(self, client):
@@ -298,38 +298,38 @@ class TestAnalyticsRegression:
             assert count == 1243, f"IPL matches: expected 1243, got {count}"
 
     def test_t20i_matches(self, engine):
-        """T20I should have 3533 matches."""
+        """T20I should have 3528 official matches."""
         from sqlalchemy import text
         with engine.connect() as conn:
             count = conn.execute(text(
                 "SELECT COUNT(*) FROM matches WHERE format = 'T20I'"
             )).scalar()
-            assert count == 3533, f"T20I matches: expected 3533, got {count}"
+            assert count == 3528, f"T20I matches: expected 3528, got {count}"
 
     def test_odi_matches(self, engine):
-        """ODI should have 2577 matches."""
+        """ODI should have 2569 official matches."""
         from sqlalchemy import text
         with engine.connect() as conn:
             count = conn.execute(text(
                 "SELECT COUNT(*) FROM matches WHERE format = 'ODI'"
             )).scalar()
-            assert count == 2577, f"ODI matches: expected 2577, got {count}"
+            assert count == 2569, f"ODI matches: expected 2569, got {count}"
 
     def test_test_matches(self, engine):
-        """Test should have 897 matches."""
+        """Test should have 892 official matches."""
         from sqlalchemy import text
         with engine.connect() as conn:
             count = conn.execute(text(
                 "SELECT COUNT(*) FROM matches WHERE format = 'Test'"
             )).scalar()
-            assert count == 897, f"Test matches: expected 897, got {count}"
+            assert count == 892, f"Test matches: expected 892, got {count}"
 
     def test_total_matches(self, engine):
-        """Total should be 8250 matches."""
+        """Total should be 8232 official matches."""
         from sqlalchemy import text
         with engine.connect() as conn:
             count = conn.execute(text("SELECT COUNT(*) FROM matches")).scalar()
-            assert count == 8250, f"Total matches: expected 8250, got {count}"
+            assert count == 8232, f"Total matches: expected 8232, got {count}"
 
     def test_kohli_ipl_runs(self, engine):
         """Virat Kohli IPL runs should be 9346."""
@@ -343,7 +343,7 @@ class TestAnalyticsRegression:
             assert runs == 9346, f"Kohli IPL runs: expected 9346, got {runs}"
 
     def test_kohli_odi_runs(self, engine):
-        """Virat Kohli ODI runs should be 15484."""
+        """Virat Kohli ODI source runs should be 14819."""
         from sqlalchemy import text
         with engine.connect() as conn:
             runs = conn.execute(text("""
@@ -351,7 +351,7 @@ class TestAnalyticsRegression:
                 JOIN players p ON pbs.player_id = p.id
                 WHERE p.canonical_name = 'Virat Kohli' AND pbs.format = 'ODI' AND pbs.period = 'career'
             """)).scalar()
-            assert runs == 15484, f"Kohli ODI runs: expected 15484, got {runs}"
+            assert runs == 14819, f"Kohli ODI runs: expected 14819, got {runs}"
 
 
 # ============================================================

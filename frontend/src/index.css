@@ -21,7 +21,13 @@
   body {
     @apply m-0 min-w-[320px] bg-surface-0 font-sans text-gray-100 antialiased;
     font-optical-sizing: auto;
+    font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
     text-rendering: optimizeLegibility;
+  }
+
+  .font-mono {
+    font-variant-numeric: tabular-nums lining-nums;
+    letter-spacing: -.015em;
   }
 
   button, input, select { font: inherit; }
@@ -421,6 +427,211 @@
   .skeleton-stat { @apply skeleton h-8 w-16; }
   .empty-state, .error-state { @apply flex flex-col items-center justify-center px-4 py-12 text-center; }
   .hero-gradient { @apply relative; }
+}
+
+/* Angular broadcast-console language
+   Functional circles (portraits, flags, gauges and status lights) stay circular;
+   containers and controls use hard edges, indexed corners and mechanical motion. */
+:root {
+  --console-edge: rgba(66, 231, 109, .34);
+  --console-edge-muted: rgba(255, 255, 255, .105);
+}
+
+/* Flatten every conventional rounded container, including page-local Tailwind
+   utilities, while deliberately leaving rounded-full data marks untouched. */
+[class*="rounded-"]:not([class*="rounded-full"]) {
+  border-radius: 1px !important;
+}
+
+.card,
+.card-solid,
+.card-glass,
+.card-glow,
+.spotlight-card,
+.match-hero,
+.player-profile-hero,
+.profile-insight,
+.result-card,
+.live-tile,
+.conditions-row,
+.conditions-metrics,
+.phase-card,
+.table-container,
+.data-ribbon,
+.match-card {
+  position: relative;
+  border-radius: 1px !important;
+}
+
+/* The short indexed corner is the visual signature of a Cricket IQ module. */
+.card::after,
+.card-solid::after,
+.card-glass::after,
+.spotlight-card::after,
+.match-hero::after,
+.player-profile-hero::after,
+.profile-insight::after,
+.data-ribbon::after,
+.table-container::after {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  z-index: 3;
+  width: 22px;
+  height: 22px;
+  border-top: 2px solid var(--console-edge);
+  border-right: 2px solid var(--console-edge);
+  content: '';
+  pointer-events: none;
+}
+
+.panel-header {
+  position: relative;
+  padding-left: 1.25rem;
+}
+
+.panel-header::before {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 22px;
+  background: var(--console-edge);
+  content: '';
+  transform: translateY(-50%);
+}
+
+/* Buttons are chamfered plates, with an offset response instead of a soft float. */
+button,
+.btn-primary,
+.btn-secondary,
+.btn-ghost,
+.nav-pill,
+.member-chip,
+.mobile-menu-button,
+.mobile-nav-item,
+.format-switch button,
+.tabs,
+.tab,
+.badge,
+.live-badge,
+.profile-tags span,
+.global-search,
+.mobile-search,
+.form-input,
+.form-select {
+  border-radius: 0 !important;
+}
+
+.btn-primary,
+.btn-secondary {
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 9px 100%, 0 calc(100% - 9px));
+}
+
+.btn-primary {
+  box-shadow: 4px 4px 0 rgba(5, 14, 8, .78), 0 10px 24px rgba(31, 206, 80, .16);
+}
+
+.btn-primary:hover,
+.btn-secondary:hover {
+  transform: translate(-2px, -2px);
+}
+
+.nav-pill,
+.member-chip,
+.global-search,
+.mobile-menu-button {
+  clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 7px 100%, 0 calc(100% - 7px));
+}
+
+.nav-pill-active {
+  box-shadow: inset 0 -2px 0 rgba(66, 231, 109, .86), inset 0 0 24px rgba(66, 231, 109, .055);
+}
+
+.tabs {
+  gap: 0 !important;
+  padding: 3px !important;
+  border-color: var(--console-edge-muted) !important;
+}
+
+.tab,
+.format-switch button {
+  position: relative;
+}
+
+.tab + .tab {
+  border-left: 1px solid rgba(255, 255, 255, .055);
+}
+
+.tab-active,
+.format-switch button.active {
+  box-shadow: inset 0 -2px 0 rgba(4, 35, 13, .48), 0 5px 16px rgba(31, 206, 80, .12) !important;
+}
+
+.badge,
+.live-badge,
+.profile-tags span {
+  clip-path: polygon(0 0, calc(100% - 4px) 0, 100% 4px, 100% 100%, 4px 100%, 0 calc(100% - 4px));
+}
+
+.result-card,
+.live-tile,
+.conditions-row,
+.phase-card,
+.player-row,
+.match-card {
+  border-radius: 0 !important;
+  box-shadow: inset 2px 0 0 rgba(66, 231, 109, .08);
+}
+
+.result-card:hover,
+.conditions-row:hover,
+.match-card:hover,
+.card-glow:hover {
+  transform: translate(-2px, -2px) !important;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, .28), inset 2px 0 0 rgba(66, 231, 109, .34);
+}
+
+.section-link::before,
+.section-link::after {
+  color: rgba(66, 231, 109, .75);
+}
+
+.section-link::before {
+  margin-right: .35rem;
+  content: '[';
+}
+
+.section-link::after {
+  margin-left: .35rem;
+  content: ']';
+}
+
+.form-input:focus,
+.form-select:focus,
+.global-search:focus-within,
+.mobile-search:focus-within {
+  box-shadow: inset 3px 0 0 rgba(66, 231, 109, .72), 0 0 0 1px rgba(66, 231, 109, .14) !important;
+}
+
+/* Keep meaningful round data visualisations round. */
+.player-portrait,
+.player-avatar,
+.profile-avatar,
+.profile-avatar::before,
+.spotlight-monogram,
+.spotlight-monogram::before,
+.spotlight-monogram::after,
+.country-flag,
+.team-orb,
+.rating-ring,
+.impact-score,
+.offline-icon,
+.signal-dot,
+.live-dot,
+.member-avatar,
+.brand-mark-ball {
+  border-radius: 9999px !important;
 }
 
 @media (max-width: 767px) {

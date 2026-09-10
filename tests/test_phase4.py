@@ -350,14 +350,14 @@ class TestFixtures:
     """Verify Test fixture files are valid."""
 
     def test_test_fixture_dir_exists(self):
-        assert Path("data/raw/test").exists(), "data/raw/test not found"
+        assert Path("data/raw/fixtures/test").exists(), "Test fixture directory not found"
 
     def test_test_fixtures_present(self):
-        files = list(Path("data/raw/test").glob("*.json"))
+        files = list(Path("data/raw/fixtures/test").glob("*.json"))
         assert len(files) >= 5, f"Expected >= 5 Test fixtures, got {len(files)}"
 
     def test_test_fixture_valid_json(self):
-        for f in list(Path("data/raw/test").glob("*.json"))[:3]:
+        for f in list(Path("data/raw/fixtures/test").glob("*.json"))[:3]:
             with open(f) as fp:
                 data = json.load(fp)
             assert "info" in data, f"{f.name} missing 'info'"
@@ -367,7 +367,7 @@ class TestFixtures:
     def test_test_fixture_has_four_innings(self):
         """At least one fixture should have 4 innings."""
         found = False
-        for f in Path("data/raw/test").glob("*.json"):
+        for f in Path("data/raw/fixtures/test").glob("*.json"):
             with open(f) as fp:
                 data = json.load(fp)
             if len(data.get("innings", [])) == 4:
@@ -378,7 +378,7 @@ class TestFixtures:
     def test_test_fixture_has_draw(self):
         """At least one fixture should be a draw."""
         found = False
-        for f in Path("data/raw/test").glob("*.json"):
+        for f in Path("data/raw/fixtures/test").glob("*.json"):
             with open(f) as fp:
                 data = json.load(fp)
             if data.get("info", {}).get("outcome", {}).get("draw"):
@@ -389,7 +389,7 @@ class TestFixtures:
     def test_test_fixture_has_declaration(self):
         """At least one fixture should have a declared innings."""
         found = False
-        for f in Path("data/raw/test").glob("*.json"):
+        for f in Path("data/raw/fixtures/test").glob("*.json"):
             with open(f) as fp:
                 data = json.load(fp)
             for inn in data.get("innings", []):
@@ -403,7 +403,7 @@ class TestFixtures:
     def test_test_fixture_has_follow_on(self):
         """At least one fixture should have a follow-on."""
         found = False
-        for f in Path("data/raw/test").glob("*.json"):
+        for f in Path("data/raw/fixtures/test").glob("*.json"):
             with open(f) as fp:
                 data = json.load(fp)
             for inn in data.get("innings", []):

@@ -104,24 +104,42 @@ def compute_scorecard_from_json(data: dict) -> tuple[dict, dict]:
                         agg["fours"] += 1
                     if batter_runs == 6 and not non_boundary:
                         agg["sixes"] += 1
-                    for wicket_info in wickets:
-                        if wicket_info.get("player_out") != batter:
-                            continue
-                        kind = _wicket_kind(wicket_info)
-                        if kind in {"retired hurt", "retired not out"}:
-                            continue
-                        agg["is_not_out"] = False
-                        agg["dismissal_type"] = wicket_info.get("kind", "")
-                        if kind not in NON_BOWLER_DISMISSALS:
-                            agg["dismissal_bowler"] = bowler or None
-                        fielders = wicket_info.get("fielders", [])
-                        if fielders:
-                            first_fielder = fielders[0]
-                            agg["fielder"] = (
-                                first_fielder.get("name")
-                                if isinstance(first_fielder, dict)
-                                else str(first_fielder)
-                            )
+
+                # A wicket can dismiss the non-striker (most commonly a run
+                # out). Attribute the dismissal to ``player_out`` rather than
+                # assuming that the batter facing the delivery was dismissed.
+                # Create a zero-ball row when a non-striker is out before ever
+                # facing, because that still counts as a batting innings.
+                for wicket_info in wickets:
+                    player_out = wicket_info.get("player_out", "")
+                    kind = _wicket_kind(wicket_info)
+                    if not player_out or kind in {"retired hurt", "retired not out"}:
+                        continue
+                    out_key = (innings_idx, player_out)
+                    if out_key not in batting_rows:
+                        batting_rows[out_key] = {
+                            "runs": 0,
+                            "balls": 0,
+                            "fours": 0,
+                            "sixes": 0,
+                            "is_not_out": True,
+                            "dismissal_type": None,
+                            "dismissal_bowler": None,
+                            "fielder": None,
+                        }
+                    out = batting_rows[out_key]
+                    out["is_not_out"] = False
+                    out["dismissal_type"] = wicket_info.get("kind", "")
+                    if kind not in NON_BOWLER_DISMISSALS:
+                        out["dismissal_bowler"] = bowler or None
+                    fielders = wicket_info.get("fielders", [])
+                    if fielders:
+                        first_fielder = fielders[0]
+                        out["fielder"] = (
+                            first_fielder.get("name")
+                            if isinstance(first_fielder, dict)
+                            else str(first_fielder)
+                        )
 
                 # Bowling aggregation
                 if bowler:
@@ -271,6 +289,15 @@ class ScorecardGenerator:
                     text("SELECT id, canonical_name FROM players")
                 ).fetchall()
                 self._player_ids = {r[1]: str(r[0]) for r in rows}
+                # Scorecard JSON commonly uses initials while the application
+                # exposes merged full-name identities. Include every recorded
+                # source alias so those players are not silently omitted.
+                aliases = conn.execute(
+                    text("SELECT name_variant, player_id FROM player_name_mappings")
+                ).fetchall()
+                self._player_ids.update(
+                    {r[0]: str(r[1]) for r in aliases if r[0] and r[1]}
+                )
             except Exception:
                 pass
 

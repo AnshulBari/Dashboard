@@ -128,7 +128,7 @@ export default function Layout() {
           </div>
           <div className="data-status">
             <span className="status-wave"><i /><i /><i /></span>
-            8,250 matches indexed
+            8,232 matches indexed
           </div>
         </div>
 

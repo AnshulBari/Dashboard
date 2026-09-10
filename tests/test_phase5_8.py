@@ -68,13 +68,13 @@ class TestPlayerCareer:
         from backend.services.analytics import player_career
         with _engine.connect() as conn:
             result = player_career(conn, KOHLI)
-        assert result["batting"]["ODI"]["runs"] >= 15000
+        assert result["batting"]["ODI"]["runs"] == 14819
 
     def test_kohli_test_runs(self):
         from backend.services.analytics import player_career
         with _engine.connect() as conn:
             result = player_career(conn, KOHLI)
-        assert result["batting"]["Test"]["runs"] >= 8000
+        assert result["batting"]["Test"]["runs"] == 9230
 
     def test_kohli_impact_scores(self):
         from backend.services.analytics import player_career
@@ -338,8 +338,8 @@ class TestDataCompleteness:
         from backend.services.analytics import data_completeness
         with _engine.connect() as conn:
             result = data_completeness(conn)
-        assert result["total_matches"] == 8250
-        assert result["venue_coverage"]["with_venue"] == 8250
+        assert result["total_matches"] == 8232
+        assert result["venue_coverage"]["with_venue"] == 8232
         assert result["competition_coverage"]["with_competition"] >= 1500
 
 
@@ -369,9 +369,9 @@ class TestFormatIsolation:
 
     def test_format_counts(self):
         assert _scalar("SELECT COUNT(*) FROM matches WHERE format='T20'") == 1243
-        assert _scalar("SELECT COUNT(*) FROM matches WHERE format='T20I'") == 3533
-        assert _scalar("SELECT COUNT(*) FROM matches WHERE format='ODI'") == 2577
-        assert _scalar("SELECT COUNT(*) FROM matches WHERE format='Test'") == 897
+        assert _scalar("SELECT COUNT(*) FROM matches WHERE format='T20I'") == 3528
+        assert _scalar("SELECT COUNT(*) FROM matches WHERE format='ODI'") == 2569
+        assert _scalar("SELECT COUNT(*) FROM matches WHERE format='Test'") == 892
 
 
 # ============================================================
@@ -393,7 +393,7 @@ class TestRegression:
         assert runs == 9346
 
     def test_total_matches(self):
-        assert _scalar("SELECT COUNT(*) FROM matches") == 8250
+        assert _scalar("SELECT COUNT(*) FROM matches") == 8232
 
 
 # ============================================================

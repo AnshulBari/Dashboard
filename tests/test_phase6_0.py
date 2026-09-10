@@ -194,7 +194,7 @@ class TestPlayerStatisticsIntegrity:
             "WHERE p.canonical_name = 'Virat Kohli' "
             "AND pbs.format = 'T20I' AND pbs.period = 'career'"
         )
-        assert runs == 4095
+        assert runs == 3969
 
     def test_kohli_odi_runs(self):
         runs = _scalar(
@@ -203,7 +203,7 @@ class TestPlayerStatisticsIntegrity:
             "WHERE p.canonical_name = 'Virat Kohli' "
             "AND pbs.format = 'ODI' AND pbs.period = 'career'"
         )
-        assert runs == 15484
+        assert runs == 14819
 
     def test_kohli_test_runs(self):
         runs = _scalar(
@@ -212,7 +212,7 @@ class TestPlayerStatisticsIntegrity:
             "WHERE p.canonical_name = 'Virat Kohli' "
             "AND pbs.format = 'Test' AND pbs.period = 'career'"
         )
-        assert runs == 8817
+        assert runs == 9230
 
     def test_no_duplicate_canonical_players(self):
         dupes = _scalar(
@@ -527,9 +527,9 @@ class TestFormatIsolation:
             test = career["batting"]["Test"]["runs"]
             # All should be different (no cross-contamination)
             assert t20 == 9346
-            assert t20i == 4095
-            assert odi == 15484
-            assert test == 8817
+            assert t20i == 3969
+            assert odi == 14819
+            assert test == 9230
 
     def test_odi_opponents_no_ipl_teams(self):
         from backend.services import analytics
@@ -543,9 +543,9 @@ class TestFormatIsolation:
 
     def test_match_count_per_format(self):
         assert _scalar("SELECT COUNT(*) FROM matches WHERE format = 'T20'") == 1243
-        assert _scalar("SELECT COUNT(*) FROM matches WHERE format = 'T20I'") == 3533
-        assert _scalar("SELECT COUNT(*) FROM matches WHERE format = 'ODI'") == 2577
-        assert _scalar("SELECT COUNT(*) FROM matches WHERE format = 'Test'") == 897
+        assert _scalar("SELECT COUNT(*) FROM matches WHERE format = 'T20I'") == 3528
+        assert _scalar("SELECT COUNT(*) FROM matches WHERE format = 'ODI'") == 2569
+        assert _scalar("SELECT COUNT(*) FROM matches WHERE format = 'Test'") == 892
 
 
 # ============================================================
@@ -578,7 +578,7 @@ class TestTotalRegression:
     """Regression checks for all formats."""
 
     def test_total_matches(self):
-        assert _scalar("SELECT COUNT(*) FROM matches") == 8250
+        assert _scalar("SELECT COUNT(*) FROM matches") == 8232
 
     def test_total_innings(self):
         total = _scalar("SELECT COUNT(*) FROM innings")

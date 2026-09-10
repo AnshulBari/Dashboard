@@ -13,7 +13,12 @@ Each fixture is a valid Cricsheet JSON file with realistic ball-by-ball data.
 import json
 import os
 
-OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "raw", "odi")
+# Reconstructed matches are validation fixtures, not authoritative scorecards.
+# Keep them outside the production Cricsheet directory so ingestion cannot
+# silently inflate public career totals.
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "..", "data", "raw", "fixtures", "odi"
+)
 
 
 def make_delivery(batter, bowler, runs_batter, extras=0, is_wicket=False,

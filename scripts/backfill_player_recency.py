@@ -50,6 +50,11 @@ def main() -> None:
         files_read = 0
         for directory, match_format in FORMAT_DIRS.items():
             for path in (RAW_ROOT / directory).glob("*.json"):
+                # Official Cricsheet match files use numeric identifiers.
+                # Non-numeric files are local test fixtures and must never
+                # influence public recency or Impact Score calculations.
+                if not path.stem.isdigit():
+                    continue
                 try:
                     with path.open(encoding="utf-8") as handle:
                         match = json.load(handle)

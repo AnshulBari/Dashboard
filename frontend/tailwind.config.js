@@ -18,9 +18,9 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['Source Sans 3', 'Helvetica Neue', 'Arial', 'system-ui', 'sans-serif'],
-        display: ['Source Sans 3', 'Helvetica Neue', 'Arial', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Consolas', 'monospace'],
+        sans: ['Inter', 'Arial', 'Helvetica Neue', 'system-ui', 'sans-serif'],
+        display: ['Inter', 'Arial', 'Helvetica Neue', 'system-ui', 'sans-serif'],
+        mono: ['Inter', 'Arial', 'Helvetica Neue', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
         panel: '0 24px 80px rgba(0,0,0,.36)',

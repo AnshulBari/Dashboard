@@ -391,17 +391,17 @@ class TestODIFixtures:
     """Tests that ODI fixture files exist and are valid."""
 
     def test_odi_fixture_dir_exists(self):
-        odi_dir = Path("data/raw/odi")
-        assert odi_dir.exists(), "data/raw/odi directory does not exist"
+        odi_dir = Path("data/raw/fixtures/odi")
+        assert odi_dir.exists(), "data/raw/fixtures/odi directory does not exist"
         assert odi_dir.is_dir(), "data/raw/odi is not a directory"
 
     def test_odi_fixtures_present(self):
-        odi_dir = Path("data/raw/odi")
+        odi_dir = Path("data/raw/fixtures/odi")
         json_files = list(odi_dir.glob("*.json"))
         assert len(json_files) >= 8, f"Expected >= 8 ODI fixtures, got {len(json_files)}"
 
     def test_odi_fixture_valid_json(self):
-        odi_dir = Path("data/raw/odi")
+        odi_dir = Path("data/raw/fixtures/odi")
         for f in list(odi_dir.glob("*.json"))[:3]:
             with open(f) as fp:
                 data = json.load(fp)
@@ -411,7 +411,7 @@ class TestODIFixtures:
 
     def test_fixture_contains_wides(self):
         """At least one fixture should contain wides."""
-        odi_dir = Path("data/raw/odi")
+        odi_dir = Path("data/raw/fixtures/odi")
         found_wide = False
         for f in odi_dir.glob("*.json"):
             with open(f) as fp:
@@ -423,7 +423,7 @@ class TestODIFixtures:
 
     def test_fixture_contains_noballs(self):
         """At least one fixture should contain no-balls."""
-        odi_dir = Path("data/raw/odi")
+        odi_dir = Path("data/raw/fixtures/odi")
         found_noball = False
         for f in odi_dir.glob("*.json"):
             with open(f) as fp:

@@ -568,16 +568,16 @@ class TestRegression:
         assert _scalar("SELECT COUNT(*) FROM matches WHERE format='T20'") == 1243
 
     def test_t20i_match_count(self):
-        assert _scalar("SELECT COUNT(*) FROM matches WHERE format='T20I'") == 3533
+        assert _scalar("SELECT COUNT(*) FROM matches WHERE format='T20I'") == 3528
 
     def test_odi_match_count(self):
-        assert _scalar("SELECT COUNT(*) FROM matches WHERE format='ODI'") == 2577
+        assert _scalar("SELECT COUNT(*) FROM matches WHERE format='ODI'") == 2569
 
     def test_test_match_count(self):
-        assert _scalar("SELECT COUNT(*) FROM matches WHERE format='Test'") == 897
+        assert _scalar("SELECT COUNT(*) FROM matches WHERE format='Test'") == 892
 
     def test_total_matches(self):
-        assert _scalar("SELECT COUNT(*) FROM matches") == 8250
+        assert _scalar("SELECT COUNT(*) FROM matches") == 8232
 
     def test_kohli_ipl_runs(self):
         runs = _scalar(
@@ -595,7 +595,7 @@ class TestRegression:
             "WHERE p.canonical_name = 'Virat Kohli' "
             "AND pbs.format = 'T20I' AND pbs.period = 'career'"
         )
-        assert runs == 4095
+        assert runs == 3969
 
     def test_kohli_odi_runs(self):
         runs = _scalar(
@@ -604,7 +604,7 @@ class TestRegression:
             "WHERE p.canonical_name = 'Virat Kohli' "
             "AND pbs.format = 'ODI' AND pbs.period = 'career'"
         )
-        assert runs == 15484
+        assert runs == 14819
 
     def test_kohli_test_runs(self):
         runs = _scalar(
@@ -613,7 +613,7 @@ class TestRegression:
             "WHERE p.canonical_name = 'Virat Kohli' "
             "AND pbs.format = 'Test' AND pbs.period = 'career'"
         )
-        assert runs == 8817
+        assert runs == 9230
 
     def test_deliveries_table_absent(self):
         exists = _scalar(

@@ -66,9 +66,9 @@ class TestPlayerWiseAnalytics:
             stats = {r[0]: r[1] for r in rows}
         engine.dispose()
         assert stats.get("T20", 0) >= 9000, f"Kohli T20 runs: {stats.get('T20')}"
-        assert stats.get("T20I", 0) >= 4000, f"Kohli T20I runs: {stats.get('T20I')}"
-        assert stats.get("ODI", 0) >= 15000, f"Kohli ODI runs: {stats.get('ODI')}"
-        assert stats.get("Test", 0) >= 8000, f"Kohli Test runs: {stats.get('Test')}"
+        assert stats.get("T20I", 0) == 3969, f"Kohli T20I source runs: {stats.get('T20I')}"
+        assert stats.get("ODI", 0) == 14819, f"Kohli ODI source runs: {stats.get('ODI')}"
+        assert stats.get("Test", 0) == 9230, f"Kohli Test source runs: {stats.get('Test')}"
 
     def test_player_form_across_formats(self):
         """Player form scores exist for all formats."""
@@ -323,9 +323,9 @@ class TestFormatIsolation:
                 ).scalar()
         engine.dispose()
         assert counts["T20"] == 1243
-        assert counts["T20I"] == 3533
-        assert counts["ODI"] == 2577
-        assert counts["Test"] == 897
+        assert counts["T20I"] == 3528
+        assert counts["ODI"] == 2569
+        assert counts["Test"] == 892
 
     def test_kohli_ipl_runs(self):
         """Kohli IPL regression."""
