@@ -501,6 +501,9 @@ class DatabaseManager:
     
     def resolve_competition(self, name: str, format: str = "", season: str = "") -> str:
         """Get or create a competition, returning its UUID."""
+        from data_pipeline.pipeline.competition_names import canonical_competition_name
+
+        name = canonical_competition_name(name)
         if name in self._competition_ids:
             return self._competition_ids[name]
         

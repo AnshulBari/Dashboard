@@ -15,6 +15,7 @@ from backend.utils.database import Base
 from backend.utils.player_images import get_player_image_url
 from backend.utils.stat_invariants import sanitize_stat_record
 from backend.services.tournaments import rank_competition_candidates
+from data_pipeline.pipeline.competition_names import canonical_competition_name
 from data_pipeline.pipeline.analytics import (
     compute_matchups,
     compute_player_batting_stats,
@@ -96,6 +97,12 @@ def test_tournament_search_resolves_alias_and_edition_without_hijacking_players(
     assert rank_competition_candidates(rows, "CWC 23")[0]["season_id"] == "cwc-2023"
     assert rank_competition_candidates(rows, "T20 WC 24")[0]["season_id"] == "t20wc-2024"
     assert rank_competition_candidates(rows, "Virat Kohli") == []
+
+
+def test_historical_world_cup_source_names_are_canonicalized():
+    assert canonical_competition_name("ICC World Cup") == "ICC Cricket World Cup"
+    assert canonical_competition_name("World Cup") == "ICC Cricket World Cup"
+    assert canonical_competition_name("Indian Premier League") == "Indian Premier League"
 
 
 def _delivery_rows() -> pd.DataFrame:

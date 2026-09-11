@@ -15,6 +15,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from data_pipeline.pipeline.scorecards import compute_scorecard_from_json
+from backend.services.cwc_reference import (
+    CWC_NAME,
+    bowling_figures,
+    expand_rows,
+    load_cwc_reference,
+    overs_to_balls,
+    score_value,
+)
 from rebuild_official_player_stats import DEFAULT_DB, FORMAT_DIRS, PlayerResolver
 
 
@@ -185,6 +193,70 @@ def build(conn: sqlite3.Connection, formats: list[str]) -> tuple[list[tuple], di
     }
 
 
+def apply_cwc_reference_overrides(conn: sqlite3.Connection) -> int:
+    """Overlay authoritative leaders where the public ball archive is partial."""
+    resolver = PlayerResolver(conn)
+    reference = load_cwc_reference()
+    updated = 0
+    unresolved: list[str] = []
+    for season_name, edition in reference["editions"].items():
+        season = conn.execute(
+            """SELECT s.id FROM seasons s JOIN competitions c ON c.id = s.competition_id
+               WHERE lower(c.name) = lower(?) AND s.name = ?""",
+            (CWC_NAME, season_name),
+        ).fetchone()
+        if not season:
+            continue
+        season_id = str(season[0])
+        for item in expand_rows("batting", edition.get("batting", [])):
+            player_id = resolver.get(item["player"])
+            if not player_id:
+                unresolved.append(item["player"])
+                continue
+            conn.execute(
+                "INSERT OR IGNORE INTO season_player_stats (season_id, player_id) VALUES (?, ?)",
+                (season_id, player_id),
+            )
+            conn.execute("""
+                UPDATE season_player_stats SET
+                    matches = MAX(matches, ?), batting_innings = ?, not_outs = ?,
+                    runs = ?, balls_faced = ?, fours = ?, sixes = ?,
+                    highest_score = ?, fifties = ?, hundreds = ?
+                WHERE season_id = ? AND player_id = ?
+            """, (
+                int(item["matches"]), int(item["innings"]), int(item["not_outs"]),
+                int(item["runs"]), int(item["balls_faced"]), int(item["fours"]),
+                int(item["sixes"]), score_value(item["highest_score"]),
+                int(item["fifties"]), int(item["hundreds"]), season_id, player_id,
+            ))
+            updated += 1
+        for item in expand_rows("bowling", edition.get("bowling", [])):
+            player_id = resolver.get(item["player"])
+            if not player_id:
+                unresolved.append(item["player"])
+                continue
+            best_wickets, best_runs = bowling_figures(item["best_bowling"])
+            conn.execute(
+                "INSERT OR IGNORE INTO season_player_stats (season_id, player_id) VALUES (?, ?)",
+                (season_id, player_id),
+            )
+            conn.execute("""
+                UPDATE season_player_stats SET
+                    matches = MAX(matches, ?), bowling_innings = ?, balls_bowled = ?,
+                    runs_conceded = ?, wickets = ?, maidens = ?,
+                    best_wickets = ?, best_runs = ?
+                WHERE season_id = ? AND player_id = ?
+            """, (
+                int(item["matches"]), int(item["innings"]), overs_to_balls(item["overs"]),
+                int(item["runs_conceded"]), int(item["wickets"]), int(item["maidens"]),
+                best_wickets, best_runs, season_id, player_id,
+            ))
+            updated += 1
+    if unresolved:
+        raise RuntimeError("Unresolved CWC reference players: " + ", ".join(sorted(set(unresolved))))
+    return updated
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
@@ -211,8 +283,12 @@ def main() -> None:
                 wickets, maidens, best_wickets, best_runs
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, rows)
+        reference_rows = apply_cwc_reference_overrides(conn)
         conn.commit()
-        print(f"Committed {len(rows):,} season-player rows to {args.db}")
+        print(
+            f"Committed {len(rows):,} season-player rows to {args.db}; "
+            f"overlaid {reference_rows:,} authoritative CWC leader records"
+        )
     except Exception:
         conn.rollback()
         raise

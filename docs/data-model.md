@@ -91,6 +91,11 @@ Compact, precomputed player totals for a single competition edition. The table
 is rebuilt from official source scorecards and keeps tournament pages independent
 of the delivery table in production.
 
+For ODI World Cup editions with incomplete public Cricsheet coverage, the rebuild
+overlays the checked-in, source-attributed aggregate leaders in
+`data/reference/cwc_official_stats.json`. Match scorecards are never synthesized:
+only locally indexed Cricsheet matches are offered for match-level navigation.
+
 | Column group | Description |
 |--------------|-------------|
 | `season_id`, `player_id` | Composite primary key and edition/player links |

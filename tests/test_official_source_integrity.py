@@ -92,6 +92,52 @@ def test_competition_matches_have_editions_and_valid_player_aggregates():
     assert cwc[1] > 0
 
 
+def test_world_cup_editions_and_authoritative_leaders_are_integrated():
+    expected = {
+        "2003": ("SR Tendulkar", 673, "WPUJC Vaas", 23),
+        "2007": ("ML Hayden", 659, "GD McGrath", 26),
+        "2011": ("TM Dilshan", 500, "Z Khan", 21),
+        "2015": ("MJ Guptill", 547, "Trent Boult", 22),
+        "2019": ("Rohit Sharma", 648, "Mitchell Starc", 27),
+        "2023": ("Virat Kohli", 765, "Mohammed Shami", 24),
+    }
+    with sqlite3.connect(DB_PATH) as conn:
+        seasons = conn.execute("""
+            SELECT s.name FROM seasons s JOIN competitions c ON c.id = s.competition_id
+            WHERE c.name = 'ICC Cricket World Cup'
+              AND s.name IN ('2003','2007','2011','2015','2019','2023')
+            ORDER BY s.name
+        """).fetchall()
+        aliases = conn.execute("""
+            SELECT COUNT(*) FROM competitions
+            WHERE lower(name) IN ('icc world cup', 'world cup')
+        """).fetchone()[0]
+        assert [row[0] for row in seasons] == list(expected)
+        assert aliases == 0
+
+        for season, (batter, runs, bowler, wickets) in expected.items():
+            batting = conn.execute("""
+                SELECT sp.runs FROM season_player_stats sp
+                JOIN seasons s ON s.id = sp.season_id
+                JOIN competitions c ON c.id = s.competition_id
+                JOIN players p ON p.id = sp.player_id
+                WHERE c.name = 'ICC Cricket World Cup' AND s.name = ?
+                  AND lower(p.canonical_name) = lower(?)
+                ORDER BY sp.runs DESC LIMIT 1
+            """, (season, batter)).fetchone()
+            bowling = conn.execute("""
+                SELECT sp.wickets FROM season_player_stats sp
+                JOIN seasons s ON s.id = sp.season_id
+                JOIN competitions c ON c.id = s.competition_id
+                JOIN players p ON p.id = sp.player_id
+                WHERE c.name = 'ICC Cricket World Cup' AND s.name = ?
+                  AND lower(p.canonical_name) = lower(?)
+                ORDER BY sp.wickets DESC LIMIT 1
+            """, (season, bowler)).fetchone()
+            assert batting and batting[0] == runs
+            assert bowling and bowling[0] == wickets
+
+
 def test_match_scorecards_cover_every_match_and_use_the_innings_teams():
     with sqlite3.connect(DB_PATH) as conn:
         coverage = conn.execute(

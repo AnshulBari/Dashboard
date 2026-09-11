@@ -18,6 +18,8 @@ from typing import Optional
 
 import pandas as pd
 
+from data_pipeline.pipeline.competition_names import canonical_competition_name
+
 logger = logging.getLogger(__name__)
 
 
@@ -81,7 +83,9 @@ def flatten_match(data: dict, filename: str = "") -> list[dict]:
     
     # Event info (for tournament detection)
     event = info.get("event", {})
-    event_name = event.get("name", "") if isinstance(event, dict) else ""
+    event_name = canonical_competition_name(
+        event.get("name", "") if isinstance(event, dict) else ""
+    )
     match_number = event.get("match_number") if isinstance(event, dict) else None
     
     # Determine competition
@@ -296,7 +300,9 @@ def get_match_info(data_dir: str | Path, match_limit: Optional[int] = None) -> p
                 "toss_decision": info.get("toss", {}).get("decision", ""),
                 "winner": outcome.get("winner", ""),
                 "result_type": normalize_result_type(outcome),
-                "event_name": event.get("name", "") if isinstance(event, dict) else "",
+                "event_name": canonical_competition_name(
+                    event.get("name", "") if isinstance(event, dict) else ""
+                ),
                 "competition": info.get("competition", ""),
             })
         except Exception:

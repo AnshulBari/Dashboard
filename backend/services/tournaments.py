@@ -11,6 +11,13 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.utils.player_images import get_player_image_url
+from backend.services.cwc_reference import (
+    bowling_figures,
+    cwc_edition,
+    expand_rows,
+    overs_to_balls,
+    score_value,
+)
 
 
 COMPETITION_ALIASES = {
@@ -194,6 +201,83 @@ def _attach_scores(db: Session, matches: list[dict[str, Any]]) -> None:
         match["score_team_b"] = " & ".join(scorelines.get((key, match.get("team_b")), [])) or None
 
 
+def _official_team_rows(db: Session, edition: dict[str, Any]) -> list[dict[str, Any]] | None:
+    source = edition.get("teams")
+    if not source:
+        return None
+    db_teams = db.execute(text(
+        "SELECT id, canonical_name, short_name, country FROM teams"
+    )).fetchall()
+    by_name = {str(row.canonical_name).casefold(): row for row in db_teams}
+    result = []
+    for item in expand_rows("team", source):
+        team = by_name.get(item["name"].casefold())
+        if not team:
+            continue
+        played = int(item["matches"])
+        wins = int(item["wins"])
+        result.append({
+            "id": str(team.id), "name": item["name"],
+            "short_name": team.short_name, "country": team.country,
+            "matches": played, "wins": wins, "losses": int(item["losses"]),
+            "ties": int(item["ties"]), "no_results": int(item["no_results"]),
+            "win_rate": round(100.0 * wins / played, 1) if played else None,
+        })
+    result.sort(key=lambda row: (row["wins"], row["win_rate"] or 0, row["matches"]), reverse=True)
+    return result
+
+
+def _official_player_rows(
+    db: Session, edition: dict[str, Any], kind: str,
+) -> list[dict[str, Any]] | None:
+    source = edition.get(kind)
+    if not source:
+        return None
+    result = []
+    for item in expand_rows(kind, source):
+        player = db.execute(text("""
+            SELECT p.id, p.canonical_name AS name, p.full_name,
+                   COALESCE(NULLIF(p.country, ''), t.canonical_name) AS country
+            FROM players p
+            LEFT JOIN teams t ON t.id = p.team_id
+            WHERE p.id IN (
+                SELECT player_id FROM player_name_mappings
+                WHERE lower(name_variant) = lower(:name)
+            ) OR lower(p.canonical_name) = lower(:name)
+            ORDER BY CASE WHEN lower(p.canonical_name) = lower(:name) THEN 1 ELSE 0 END,
+                     CASE WHEN p.full_name IS NOT NULL AND p.full_name <> '' THEN 1 ELSE 0 END DESC
+            LIMIT 1
+        """), {"name": item["player"]}).fetchone()
+        if not player:
+            continue
+        row = dict(player._mapping)
+        row["id"] = str(row["id"])
+        row["matches"] = int(item["matches"])
+        row["innings"] = int(item["innings"])
+        if kind == "batting":
+            row.update({
+                "not_outs": int(item["not_outs"]), "runs": int(item["runs"]),
+                "balls_faced": int(item["balls_faced"]), "fours": int(item["fours"]),
+                "sixes": int(item["sixes"]), "highest_score": score_value(item["highest_score"]),
+                "fifties": int(item["fifties"]), "hundreds": int(item["hundreds"]),
+            })
+            dismissals = row["innings"] - row["not_outs"]
+            row["average"] = round(row["runs"] / dismissals, 2) if dismissals else None
+            row["strike_rate"] = round(100.0 * row["runs"] / row["balls_faced"], 2) if row["balls_faced"] else None
+        else:
+            best_wickets, best_runs = bowling_figures(item["best_bowling"])
+            row.update({
+                "wickets": int(item["wickets"]), "balls_bowled": overs_to_balls(item["overs"]),
+                "runs_conceded": int(item["runs_conceded"]), "maidens": int(item["maidens"]),
+                "best_wickets": best_wickets, "best_runs": best_runs,
+            })
+            row["average"] = round(row["runs_conceded"] / row["wickets"], 2) if row["wickets"] else None
+            row["economy"] = round(6.0 * row["runs_conceded"] / row["balls_bowled"], 2) if row["balls_bowled"] else None
+        row["image_url"] = get_player_image_url(row.get("name"), row.get("full_name"), row["id"])
+        result.append(row)
+    return result
+
+
 def tournament_dashboard(db: Session, competition_id: str, season_id: str | None = None) -> dict[str, Any] | None:
     competition = db.execute(text("""
         SELECT id, name, short_name, format, governing_body, season
@@ -348,15 +432,39 @@ def tournament_dashboard(db: Session, competition_id: str, season_id: str | None
     for row in season_rows:
         row["id"] = str(row["id"])
 
+    overview_data = dict(overview._mapping) if overview else {}
+    team_rows = [{**dict(row._mapping), "id": str(row.id)} for row in teams]
+    batter_rows = player_rows(top_batters)
+    bowler_rows = player_rows(top_bowlers)
+    reference = cwc_edition(competition_data.get("name"), selected.get("name"))
+    if reference:
+        indexed = int(overview_data.get("matches") or 0)
+        overview_data.update({
+            "matches": int(reference["scheduled_matches"]),
+            "statistical_matches": int(reference["statistical_matches"]),
+            "scorecards_indexed": indexed,
+            "teams": int(reference["teams_count"]),
+            "runs": int(reference["runs"]),
+            "wickets": int(reference["wickets"]),
+        })
+        if reference.get("teams"):
+            overview_data["highest_total"] = max(
+                row["highest_total"] for row in expand_rows("team", reference["teams"])
+                if row["highest_total"] is not None
+            )
+        team_rows = _official_team_rows(db, reference) or team_rows
+        batter_rows = _official_player_rows(db, reference, "batting") or batter_rows
+        bowler_rows = _official_player_rows(db, reference, "bowling") or bowler_rows
+
     return {
         "competition": competition_data,
         "season": selected,
         "seasons": season_rows,
-        "overview": dict(overview._mapping) if overview else {},
+        "overview": overview_data,
         "champion": ({**dict(champion._mapping), "id": str(champion.id)} if champion else None),
-        "teams": [{**dict(row._mapping), "id": str(row.id)} for row in teams],
-        "top_batters": player_rows(top_batters),
-        "top_bowlers": player_rows(top_bowlers),
+        "teams": team_rows,
+        "top_batters": batter_rows,
+        "top_bowlers": bowler_rows,
         "matches": match_rows,
         "venues": [{**dict(row._mapping), "id": str(row.id)} for row in venues],
         "generated_through": date.today().isoformat(),

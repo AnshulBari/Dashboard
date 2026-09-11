@@ -834,6 +834,8 @@ export interface TournamentDashboard {
   })[]
   overview: {
     matches: number
+    statistical_matches?: number
+    scorecards_indexed?: number
     teams: number
     venues: number
     runs: number

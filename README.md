@@ -40,8 +40,8 @@ The platform ingests **ball-by-ball cricket data** from [Cricsheet](https://cric
 | Players | 5,735 canonical serving identities |
 | Teams | 127 (14 IPL franchises + 110 national + 3 composite) |
 | Venues | 462 |
-| Competitions | 693 canonical competitions and series |
-| Editions | 1,347 competition seasons |
+| Competitions | 691 canonical competitions and series |
+| Editions | 1,346 competition seasons |
 | Batting stats | 8,475 player-format records |
 | Bowling stats | 6,092 player-format records |
 | Batter-bowler matchups | 101,318 |
@@ -703,6 +703,14 @@ player leaderboards are served from compact precomputed `season_player_stats`
 rows. Clicking a result opens its ordered, innings-by-innings batting and bowling
 scorecard from `match_batting_summary` and `match_bowling_summary`; delivery-level
 data is never read by the API.
+
+The ODI World Cup is canonicalized across historical Cricsheet event labels and
+currently exposes the 2003, 2007, 2011, 2015, 2019, and 2023 editions. Cricsheet
+remains the source for navigable match scorecards. Where its public archive omits
+matches, checked-in ESPNcricinfo Statsguru snapshots supply edition totals, team
+records, and top-player aggregates; the API reports `scorecards_indexed`
+separately from official `matches` so partial source coverage is never presented
+as complete.
 
 #### Matchups
 

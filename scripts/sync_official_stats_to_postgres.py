@@ -255,6 +255,51 @@ def _insert_missing_seasons(
     return len(rows)
 
 
+def _season_dimension_drift(
+    cursor, local: sqlite3.Connection, season_ids: dict[str, str],
+    competition_ids: dict[str, str],
+) -> int:
+    cursor.execute("SELECT id::text, competition_id::text, name FROM seasons")
+    remote = {str(row[0]): (str(row[1]), str(row[2])) for row in cursor.fetchall()}
+    drift = 0
+    for season_id, competition_id, name in local.execute(
+        "SELECT id, competition_id, name FROM seasons"
+    ):
+        remote_id = season_ids.get(str(season_id))
+        expected_competition = competition_ids.get(str(competition_id))
+        if remote_id and expected_competition and remote.get(remote_id) != (
+            expected_competition, str(name)
+        ):
+            drift += 1
+    return drift
+
+
+def _sync_season_dimensions(
+    cursor, local: sqlite3.Connection, season_ids: dict[str, str],
+    competition_ids: dict[str, str],
+) -> int:
+    rows = [
+        (
+            season_ids[str(season_id)], competition_ids[str(competition_id)],
+            name, start_date, end_date,
+        )
+        for season_id, competition_id, name, start_date, end_date in local.execute(
+            "SELECT id, competition_id, name, start_date, end_date FROM seasons"
+        )
+        if str(season_id) in season_ids and str(competition_id) in competition_ids
+    ]
+    execute_values(cursor, """
+        UPDATE seasons AS s
+        SET competition_id = v.competition_id::uuid,
+            name = v.name,
+            start_date = v.start_date::date,
+            end_date = v.end_date::date
+        FROM (VALUES %s) AS v(id, competition_id, name, start_date, end_date)
+        WHERE s.id = v.id::uuid
+    """, rows, page_size=500)
+    return len(rows)
+
+
 def _sync_match_dimensions(
     cursor, local: sqlite3.Connection, competition_ids: dict[str, str],
     season_ids: dict[str, str],
@@ -564,7 +609,8 @@ def main() -> None:
             print(
                 f"Catalog additions required: competitions "
                 f"{local_competitions - len(competition_ids):,}, seasons "
-                f"{local_seasons - len(season_ids):,}"
+                f"{local_seasons - len(season_ids):,}; season dimension updates "
+                f"{_season_dimension_drift(cursor, local, season_ids, competition_ids):,}"
             )
 
             if not args.apply:
@@ -590,13 +636,17 @@ def main() -> None:
                     f"competitions {len(competition_ids)}/{local_competitions}, "
                     f"seasons {len(season_ids)}/{local_seasons}"
                 )
+            updated_seasons = _sync_season_dimensions(
+                cursor, local, season_ids, competition_ids
+            )
             updated_matches = _sync_match_dimensions(
                 cursor, local, competition_ids, season_ids
             )
             updated_innings = _sync_innings_totals(cursor, local, innings_ids)
             print(
                 f"  synchronized catalog: {added_competitions:,} competitions, "
-                f"{added_seasons:,} seasons, {updated_matches:,} match links, "
+                f"{added_seasons:,} new seasons, {updated_seasons:,} season records, "
+                f"{updated_matches:,} match links, "
                 f"{updated_innings:,} innings totals",
                 flush=True,
             )
@@ -688,6 +738,25 @@ def main() -> None:
             )
             cwc_matches, cwc_player_rows = cursor.fetchone()
             cursor.execute(
+                """SELECT s.name
+                   FROM seasons s JOIN competitions c ON c.id = s.competition_id
+                   WHERE lower(c.name) = 'icc cricket world cup'
+                     AND s.name IN ('2003','2007','2011','2015','2019','2023')
+                   ORDER BY s.name"""
+            )
+            cwc_editions = [row[0] for row in cursor.fetchall()]
+            cursor.execute(
+                """SELECT p.canonical_name, sp.runs
+                   FROM season_player_stats sp
+                   JOIN seasons s ON s.id = sp.season_id
+                   JOIN competitions c ON c.id = s.competition_id
+                   JOIN players p ON p.id = sp.player_id
+                   WHERE lower(c.name) = 'icc cricket world cup' AND s.name = '2023'
+                     AND sp.batting_innings > 0
+                   ORDER BY sp.runs DESC LIMIT 2"""
+            )
+            cwc_2023_batters = [(row[0], row[1]) for row in cursor.fetchall()]
+            cursor.execute(
                 """SELECT s.matches, s.innings, s.not_outs, s.runs,
                           s.batting_average, s.balls_faced, s.strike_rate,
                           s.hundreds
@@ -740,6 +809,12 @@ def main() -> None:
                 raise RuntimeError(
                     f"CWC 2023 verification failed: matches={cwc_matches}, "
                     f"player_rows={cwc_player_rows}"
+                )
+            if cwc_editions != ["2003", "2007", "2011", "2015", "2019", "2023"]:
+                raise RuntimeError(f"CWC edition verification failed: {cwc_editions}")
+            if cwc_2023_batters != [("Virat Kohli", 765), ("Rohit Sharma", 597)]:
+                raise RuntimeError(
+                    f"CWC 2023 batting leaderboard verification failed: {cwc_2023_batters}"
                 )
             if scorecard_coverage != (8232, 8232, 0, 0):
                 raise RuntimeError(

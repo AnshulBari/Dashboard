@@ -137,7 +137,7 @@ export default function CompetitionDetail() {
           </div>
         </div>
         <div className="tournament-metrics">
-          <div><strong>{number(overview.matches)}</strong><span>Matches indexed</span></div>
+          <div><strong>{number(overview.matches)}</strong><span>Tournament matches</span></div>
           <div><strong>{number(overview.teams)}</strong><span>Teams</span></div>
           <div><strong>{number(overview.runs)}</strong><span>Runs</span></div>
           <div><strong>{number(overview.wickets)}</strong><span>Wickets</span></div>
@@ -170,7 +170,9 @@ export default function CompetitionDetail() {
           <section className="card-solid overflow-hidden">
             <div className="panel-header">
               <div><p className="panel-kicker">Edition results</p><h2 className="mt-1 font-display text-base font-semibold text-white">Match center</h2></div>
-              <span className="section-link">{data.matches.length} results</span>
+              <span className="section-link">
+                {number(overview.scorecards_indexed ?? data.matches.length)} of {number(overview.matches)} scorecards indexed
+              </span>
             </div>
             <div className="grid gap-2 p-3 md:grid-cols-2">
               {data.matches.map((match) => <MatchCard match={match} key={match.id} />)}
