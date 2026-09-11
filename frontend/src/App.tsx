@@ -15,6 +15,7 @@ const Matches = lazy(() => import('./pages/Matches'))
 const MatchDetail = lazy(() => import('./pages/MatchDetail'))
 const Live = lazy(() => import('./pages/Live'))
 const Rankings = lazy(() => import('./pages/Rankings'))
+const CompetitionDetail = lazy(() => import('./pages/CompetitionDetail'))
 
 function PageLoader() {
   return (
@@ -48,7 +49,7 @@ function App() {
         <Route path="/live" element={<LazyPage><Live /></LazyPage>} />
         <Route path="/rankings" element={<LazyPage><Rankings /></LazyPage>} />
         <Route path="/competitions" element={<LazyPage><Rankings /></LazyPage>} />
-        <Route path="/competitions/:id" element={<LazyPage><Rankings /></LazyPage>} />
+        <Route path="/competitions/:id" element={<LazyPage><CompetitionDetail /></LazyPage>} />
       </Route>
     </Routes>
   )

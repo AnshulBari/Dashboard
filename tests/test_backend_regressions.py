@@ -14,6 +14,7 @@ from backend.services.live import LiveService
 from backend.utils.database import Base
 from backend.utils.player_images import get_player_image_url
 from backend.utils.stat_invariants import sanitize_stat_record
+from backend.services.tournaments import rank_competition_candidates
 from data_pipeline.pipeline.analytics import (
     compute_matchups,
     compute_player_batting_stats,
@@ -77,6 +78,24 @@ def test_impact_rebuild_does_not_preserve_prior_only_aliases():
     assert result[["player_id", "format"]].to_dict("records") == [
         {"player_id": "canonical", "format": "Test"}
     ]
+
+
+def test_tournament_search_resolves_alias_and_edition_without_hijacking_players():
+    rows = [
+        {"id": "cwc", "name": "ICC Cricket World Cup", "short_name": None,
+         "format": "ODI", "season_id": "cwc-2023", "season_name": "2023",
+         "match_count": 39},
+        {"id": "qualifier", "name": "ICC Cricket World Cup Qualifier", "short_name": None,
+         "format": "ODI", "season_id": "qualifier-2023", "season_name": "2023",
+         "match_count": 34},
+        {"id": "t20wc", "name": "ICC Men's T20 World Cup", "short_name": None,
+         "format": "T20I", "season_id": "t20wc-2024", "season_name": "2024",
+         "match_count": 44},
+    ]
+
+    assert rank_competition_candidates(rows, "CWC 23")[0]["season_id"] == "cwc-2023"
+    assert rank_competition_candidates(rows, "T20 WC 24")[0]["season_id"] == "t20wc-2024"
+    assert rank_competition_candidates(rows, "Virat Kohli") == []
 
 
 def _delivery_rows() -> pd.DataFrame:

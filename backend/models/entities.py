@@ -340,6 +340,42 @@ class PlayerRecentStats(Base):
     runs_conceded = Column(Integer, default=0)
 
 
+class SeasonPlayerStats(Base):
+    """Compact player aggregates for one competition edition."""
+    __tablename__ = "season_player_stats"
+
+    season_id = Column(
+        UUID(as_uuid=True), ForeignKey("seasons.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    player_id = Column(
+        UUID(as_uuid=True), ForeignKey("players.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    matches = Column(Integer, default=0)
+    batting_innings = Column(Integer, default=0)
+    not_outs = Column(Integer, default=0)
+    runs = Column(Integer, default=0)
+    balls_faced = Column(Integer, default=0)
+    fours = Column(Integer, default=0)
+    sixes = Column(Integer, default=0)
+    highest_score = Column(Integer)
+    fifties = Column(Integer, default=0)
+    hundreds = Column(Integer, default=0)
+    bowling_innings = Column(Integer, default=0)
+    balls_bowled = Column(Integer, default=0)
+    runs_conceded = Column(Integer, default=0)
+    wickets = Column(Integer, default=0)
+    maidens = Column(Integer, default=0)
+    best_wickets = Column(Integer)
+    best_runs = Column(Integer)
+
+    __table_args__ = (
+        Index("idx_sps_season_runs", "season_id", "runs"),
+        Index("idx_sps_season_wickets", "season_id", "wickets"),
+    )
+
+
 class TeamPerformance(Base):
     __tablename__ = "team_performance"
     

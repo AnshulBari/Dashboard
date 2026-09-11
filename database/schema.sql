@@ -423,6 +423,33 @@ CREATE TABLE player_recent_stats (
     PRIMARY KEY (player_id, format)
 );
 
+-- Compact scorecard aggregates for searchable tournament editions.
+CREATE TABLE season_player_stats (
+    season_id UUID NOT NULL REFERENCES seasons(id) ON DELETE CASCADE,
+    player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    matches INTEGER DEFAULT 0,
+    batting_innings INTEGER DEFAULT 0,
+    not_outs INTEGER DEFAULT 0,
+    runs INTEGER DEFAULT 0,
+    balls_faced INTEGER DEFAULT 0,
+    fours INTEGER DEFAULT 0,
+    sixes INTEGER DEFAULT 0,
+    highest_score INTEGER,
+    fifties INTEGER DEFAULT 0,
+    hundreds INTEGER DEFAULT 0,
+    bowling_innings INTEGER DEFAULT 0,
+    balls_bowled INTEGER DEFAULT 0,
+    runs_conceded INTEGER DEFAULT 0,
+    wickets INTEGER DEFAULT 0,
+    maidens INTEGER DEFAULT 0,
+    best_wickets INTEGER,
+    best_runs INTEGER,
+    PRIMARY KEY (season_id, player_id)
+);
+
+CREATE INDEX idx_sps_season_runs ON season_player_stats(season_id, runs DESC);
+CREATE INDEX idx_sps_season_wickets ON season_player_stats(season_id, wickets DESC);
+
 -- Player Impact (future: Actual vs Expected performance)
 CREATE TABLE player_impact (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

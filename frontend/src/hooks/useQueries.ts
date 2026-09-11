@@ -274,6 +274,15 @@ export function useCompetitionSummary(id: string) {
   })
 }
 
+export function useCompetitionDashboard(id: string, seasonId?: string) {
+  return useQuery({
+    queryKey: queryKeys.competition.dashboard(id, seasonId),
+    queryFn: () => competitionApi.getDashboard(id, seasonId),
+    enabled: !!id,
+    staleTime: 10 * 60 * 1000,
+  })
+}
+
 // ============================================================
 // Matchup Hooks
 // ============================================================

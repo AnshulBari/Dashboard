@@ -100,6 +100,7 @@ export const queryKeys = {
     detail: (id: string) => ['competitions', 'detail', id] as const,
     seasons: (id: string) => ['competitions', 'seasons', id] as const,
     summary: (id: string) => ['competitions', 'summary', id] as const,
+    dashboard: (id: string, seasonId?: string) => ['competitions', 'dashboard', id, seasonId] as const,
     seasonMatches: (seasonId: string) => ['competitions', 'seasonMatches', seasonId] as const,
   },
   // Matchups
@@ -302,6 +303,15 @@ export const competitionApi = {
   getSeasons: (id: string) => fetchJson<{ seasons: SeasonRow[]; total: number }>(`/competitions/${id}/seasons`),
   
   getSummary: (id: string) => fetchJson<CompetitionSummary>(`/analytics/competitions/${id}/summary`),
+
+  resolve: (query: string) => fetchJson<CompetitionSearchResponse>(
+    `/competitions/search?q=${encodeURIComponent(query)}`
+  ),
+
+  getDashboard: (id: string, seasonId?: string) => {
+    const query = seasonId ? `?season_id=${encodeURIComponent(seasonId)}` : ''
+    return fetchJson<TournamentDashboard>(`/competitions/${id}/dashboard${query}`)
+  },
 }
 
 // Matchup API
@@ -761,6 +771,102 @@ export interface CompetitionSummary {
     matches: number
     teams: number
   }[]
+}
+
+export interface CompetitionSearchMatch {
+  id: string
+  name: string
+  short_name: string | null
+  format: string
+  season_id: string
+  season_name: string
+  start_date: string | null
+  end_date: string | null
+  match_count: number
+  first_match_date: string | null
+  last_match_date: string | null
+  score: number
+}
+
+export interface CompetitionSearchResponse {
+  query: string
+  match: CompetitionSearchMatch | null
+  results: CompetitionSearchMatch[]
+}
+
+export interface TournamentPlayerStats {
+  id: string
+  name: string
+  full_name: string | null
+  image_url: string | null
+  country: string | null
+  matches: number
+  innings: number
+  runs?: number
+  balls_faced?: number
+  fours?: number
+  sixes?: number
+  highest_score?: number | null
+  fifties?: number
+  hundreds?: number
+  wickets?: number
+  balls_bowled?: number
+  runs_conceded?: number
+  maidens?: number
+  best_wickets?: number | null
+  best_runs?: number | null
+  average: number | null
+  strike_rate?: number | null
+  economy?: number | null
+}
+
+export interface TournamentDashboard {
+  competition: CompetitionRow
+  season: SeasonRow & {
+    matches: number
+    first_match_date: string | null
+    last_match_date: string | null
+  }
+  seasons: (SeasonRow & {
+    matches: number
+    first_match_date: string | null
+    last_match_date: string | null
+  })[]
+  overview: {
+    matches: number
+    teams: number
+    venues: number
+    runs: number
+    wickets: number
+    highest_total: number | null
+    avg_first_innings: number | null
+  }
+  champion: { id: string; name: string } | null
+  teams: {
+    id: string
+    name: string
+    short_name: string | null
+    country: string | null
+    matches: number
+    wins: number
+    losses: number
+    ties: number
+    no_results: number
+    win_rate: number | null
+  }[]
+  top_batters: TournamentPlayerStats[]
+  top_bowlers: TournamentPlayerStats[]
+  matches: MatchRow[]
+  venues: {
+    id: string
+    name: string
+    city: string | null
+    country: string | null
+    matches: number
+    avg_first_innings: number | null
+    highest_total: number | null
+  }[]
+  generated_through: string
 }
 
 export interface MatchupRow {

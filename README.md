@@ -40,7 +40,8 @@ The platform ingests **ball-by-ball cricket data** from [Cricsheet](https://cric
 | Players | 5,735 canonical serving identities |
 | Teams | 127 (14 IPL franchises + 110 national + 3 composite) |
 | Venues | 462 |
-| Competitions | 12 (IPL, World Cup, Champions Trophy, Ashes, bilateral) |
+| Competitions | 693 canonical competitions and series |
+| Editions | 1,347 competition seasons |
 | Batting stats | 8,475 player-format records |
 | Bowling stats | 6,092 player-format records |
 | Batter-bowler matchups | 101,318 |
@@ -287,6 +288,7 @@ GET /api/matchups/{batter_id}/{bowler_id}
 
 The React dashboard displays the data through:
 - **Dashboard** — Overview with stat cards, trending players table, team rankings, recent matches, venue insights
+- **Tournament Intelligence** — Search aliases such as `CWC 23`, `T20 WC 24`, or `IPL 2024` for an edition-wide dashboard
 - **Players** — Searchable player list with Impact Scores, filterable by role/country
 - **Player Detail** — Full player profile with batting stats, bowling stats, and Impact breakdown
 - **Teams** — Team strength rankings with win rates
@@ -532,6 +534,9 @@ python -m data_pipeline.pipeline.run --format t20i --sample 100
 
 # Force re-download even if data exists
 python -m data_pipeline.pipeline.run --format ipl --force --sample 50
+
+# Rebuild compact player totals for every competition edition
+python scripts/rebuild_season_player_stats.py
 ```
 
 ### Batch processing (for large historical datasets)
@@ -680,6 +685,19 @@ http://localhost:8000
 |--------|----------|-------------|
 | GET | `/api/matches` | List matches with filtering |
 | GET | `/api/matches/{id}` | Get match details |
+
+#### Competitions and tournaments
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/competitions/search?q=CWC%2023` | Resolve common names and aliases to a competition edition |
+| GET | `/api/competitions/{id}` | Get competition metadata and editions |
+| GET | `/api/competitions/{id}/seasons` | List editions for a competition |
+| GET | `/api/competitions/{id}/dashboard?season_id={id}` | Get edition overview, champion, team records, player leaders, venues, and match scorecards |
+
+Tournament search is attempted before global search falls back to players. Edition
+player leaderboards are served from compact precomputed `season_player_stats`
+rows; delivery-level data is never read by the API.
 
 #### Matchups
 

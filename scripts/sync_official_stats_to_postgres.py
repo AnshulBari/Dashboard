@@ -1,9 +1,10 @@
 """Atomically synchronize corrected serving aggregates to PostgreSQL.
 
-The local SQLite database is the rebuildable serving snapshot.  This command
-copies only derived analytics tables, then removes the known reconstructed
-fixture matches from PostgreSQL.  Entity identities and compact official match
-scorecards are preserved.  No ball-by-ball delivery data is uploaded.
+The local SQLite database is the rebuildable serving snapshot. This command
+copies derived analytics, fills missing competition/season catalog rows, links
+matches to those editions by stable external ID, and removes known reconstructed
+fixtures. Entity identities and compact official match scorecards are preserved.
+No ball-by-ball delivery data is uploaded.
 
 The command is read-only unless ``--apply`` is supplied.
 """
@@ -30,6 +31,7 @@ TABLES = (
     "player_bowling_stats",
     "batter_bowler_matchups",
     "player_recent_stats",
+    "season_player_stats",
     "player_form",
     "team_performance",
     "venue_stats",
@@ -151,6 +153,95 @@ def _player_id_map(cursor, local: sqlite3.Connection):
     return mapping, len(local_rows), len(remote_rows), changed
 
 
+def _season_id_map(
+    cursor, local: sqlite3.Connection, competition_ids: dict[str, str]
+) -> tuple[dict[str, str], int, int]:
+    local_rows = local.execute(
+        "SELECT id, competition_id, name FROM seasons"
+    ).fetchall()
+    cursor.execute("SELECT id::text, competition_id::text, name FROM seasons")
+    remote_rows = cursor.fetchall()
+    remote_ids = {str(row[0]) for row in remote_rows}
+    remote_by_key = {
+        (str(row[1]), _identity_key((row[2],))[0]): str(row[0])
+        for row in remote_rows
+    }
+    mapping = {}
+    for season_id, competition_id, name in local_rows:
+        season_id = str(season_id)
+        if season_id in remote_ids:
+            mapping[season_id] = season_id
+            continue
+        remote_competition_id = competition_ids.get(str(competition_id))
+        if remote_competition_id:
+            remote_id = remote_by_key.get(
+                (remote_competition_id, _identity_key((name,))[0])
+            )
+            if remote_id:
+                mapping[season_id] = remote_id
+    return mapping, len(local_rows), len(remote_rows)
+
+
+def _insert_missing_competitions(
+    cursor, local: sqlite3.Connection, competition_ids: dict[str, str]
+) -> int:
+    source = local.execute(
+        "SELECT id, name, short_name, format, governing_body, season FROM competitions"
+    ).fetchall()
+    rows = [row for row in source if str(row[0]) not in competition_ids]
+    if rows:
+        execute_values(cursor, """
+            INSERT INTO competitions (id, name, short_name, format, governing_body, season)
+            VALUES %s ON CONFLICT DO NOTHING
+        """, rows, page_size=500)
+    return len(rows)
+
+
+def _insert_missing_seasons(
+    cursor, local: sqlite3.Connection, season_ids: dict[str, str],
+    competition_ids: dict[str, str],
+) -> int:
+    rows = []
+    for season_id, competition_id, name, start_date, end_date in local.execute(
+        "SELECT id, competition_id, name, start_date, end_date FROM seasons"
+    ):
+        if str(season_id) in season_ids:
+            continue
+        remote_competition = competition_ids.get(str(competition_id))
+        if remote_competition:
+            rows.append((season_id, remote_competition, name, start_date, end_date))
+    if rows:
+        execute_values(cursor, """
+            INSERT INTO seasons (id, competition_id, name, start_date, end_date)
+            VALUES %s ON CONFLICT DO NOTHING
+        """, rows, page_size=500)
+    return len(rows)
+
+
+def _sync_match_dimensions(
+    cursor, local: sqlite3.Connection, competition_ids: dict[str, str],
+    season_ids: dict[str, str],
+) -> int:
+    rows = [
+        (
+            str(external_id),
+            competition_ids.get(str(competition_id)) if competition_id else None,
+            season_ids.get(str(season_id)) if season_id else None,
+        )
+        for external_id, competition_id, season_id in local.execute(
+            "SELECT external_id, competition_id, season_id FROM matches"
+        )
+    ]
+    execute_values(cursor, """
+        UPDATE matches AS m
+        SET competition_id = v.competition_id::uuid,
+            season_id = v.season_id::uuid
+        FROM (VALUES %s) AS v(external_id, competition_id, season_id)
+        WHERE m.external_id = v.external_id
+    """, rows, page_size=1000)
+    return len(rows)
+
+
 def _replace_table(
     cursor, local: sqlite3.Connection, table: str,
     foreign_keys: dict[str, dict[str, str]],
@@ -261,6 +352,38 @@ def _ensure_remote_analytics_schema(cursor) -> None:
     cursor.execute(
         "ALTER TABLE player_form ADD COLUMN IF NOT EXISTS last_match_date DATE"
     )
+    cursor.execute(
+        """CREATE TABLE IF NOT EXISTS season_player_stats (
+               season_id UUID NOT NULL REFERENCES seasons(id) ON DELETE CASCADE,
+               player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+               matches INTEGER DEFAULT 0,
+               batting_innings INTEGER DEFAULT 0,
+               not_outs INTEGER DEFAULT 0,
+               runs INTEGER DEFAULT 0,
+               balls_faced INTEGER DEFAULT 0,
+               fours INTEGER DEFAULT 0,
+               sixes INTEGER DEFAULT 0,
+               highest_score INTEGER,
+               fifties INTEGER DEFAULT 0,
+               hundreds INTEGER DEFAULT 0,
+               bowling_innings INTEGER DEFAULT 0,
+               balls_bowled INTEGER DEFAULT 0,
+               runs_conceded INTEGER DEFAULT 0,
+               wickets INTEGER DEFAULT 0,
+               maidens INTEGER DEFAULT 0,
+               best_wickets INTEGER,
+               best_runs INTEGER,
+               PRIMARY KEY (season_id, player_id)
+           )"""
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sps_season_runs "
+        "ON season_player_stats(season_id, runs DESC)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sps_season_wickets "
+        "ON season_player_stats(season_id, wickets DESC)"
+    )
 
 
 def main() -> None:
@@ -298,13 +421,22 @@ def main() -> None:
             venue_ids, local_venues, remote_venues = _entity_id_map(
                 cursor, local, "venues", ("name",)
             )
+            competition_ids, local_competitions, remote_competitions = _entity_id_map(
+                cursor, local, "competitions", ("name", "format")
+            )
+            season_ids, local_seasons, remote_seasons = _season_id_map(
+                cursor, local, competition_ids
+            )
             print(f"PostgreSQL matches: {remote_match_count:,}")
             print(f"Reconstructed matches to remove: {fixture_count}")
             print(
                 f"Identity maps: players {len(player_ids):,}/{local_players:,} local "
                 f"({remote_players:,} remote), teams {len(team_ids):,}/{local_teams:,} local "
                 f"({remote_teams:,} remote), venues {len(venue_ids):,}/{local_venues:,} local "
-                f"({remote_venues:,} remote)"
+                f"({remote_venues:,} remote), competitions "
+                f"{len(competition_ids):,}/{local_competitions:,} local "
+                f"({remote_competitions:,} remote), seasons "
+                f"{len(season_ids):,}/{local_seasons:,} local ({remote_seasons:,} remote)"
             )
             missing_players = local.execute(
                 "SELECT canonical_name FROM players ORDER BY canonical_name"
@@ -335,11 +467,43 @@ def main() -> None:
                 print("Required new player identities: " + ", ".join(required_names))
             for table, count in local_counts.items():
                 print(f"  {table}: {count:,} local rows")
+            print(
+                f"Catalog additions required: competitions "
+                f"{local_competitions - len(competition_ids):,}, seasons "
+                f"{local_seasons - len(season_ids):,}"
+            )
 
             if not args.apply:
                 remote.rollback()
                 print("Dry run only; pass --apply to synchronize PostgreSQL.")
                 return
+
+            added_competitions = _insert_missing_competitions(
+                cursor, local, competition_ids
+            )
+            competition_ids, local_competitions, remote_competitions = _entity_id_map(
+                cursor, local, "competitions", ("name", "format")
+            )
+            added_seasons = _insert_missing_seasons(
+                cursor, local, season_ids, competition_ids
+            )
+            season_ids, local_seasons, remote_seasons = _season_id_map(
+                cursor, local, competition_ids
+            )
+            if len(competition_ids) != local_competitions or len(season_ids) != local_seasons:
+                raise RuntimeError(
+                    "Competition catalog mapping is incomplete after insert: "
+                    f"competitions {len(competition_ids)}/{local_competitions}, "
+                    f"seasons {len(season_ids)}/{local_seasons}"
+                )
+            updated_matches = _sync_match_dimensions(
+                cursor, local, competition_ids, season_ids
+            )
+            print(
+                f"  synchronized catalog: {added_competitions:,} competitions, "
+                f"{added_seasons:,} seasons, {updated_matches:,} match links",
+                flush=True,
+            )
 
             inserted_players = _insert_required_players(
                 cursor, local, player_ids, team_ids, required_new_player_ids
@@ -377,6 +541,9 @@ def main() -> None:
                     "batter_id": player_ids, "bowler_id": player_ids,
                 },
                 "player_recent_stats": {"player_id": player_ids},
+                "season_player_stats": {
+                    "player_id": player_ids, "season_id": season_ids,
+                },
                 "player_form": {"player_id": player_ids},
                 "team_performance": {"team_id": team_ids},
                 "venue_stats": {"venue_id": venue_ids},
@@ -392,6 +559,26 @@ def main() -> None:
 
             cursor.execute("SELECT COUNT(*) FROM matches")
             final_matches = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM matches WHERE competition_id IS NOT NULL")
+            remote_competition_links = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM matches WHERE season_id IS NOT NULL")
+            remote_season_links = cursor.fetchone()[0]
+            local_competition_links = local.execute(
+                "SELECT COUNT(*) FROM matches WHERE competition_id IS NOT NULL"
+            ).fetchone()[0]
+            local_season_links = local.execute(
+                "SELECT COUNT(*) FROM matches WHERE season_id IS NOT NULL"
+            ).fetchone()[0]
+            cursor.execute(
+                """SELECT COUNT(DISTINCT m.id), COUNT(DISTINCT sp.player_id)
+                   FROM competitions c
+                   JOIN seasons s ON s.competition_id = c.id
+                   LEFT JOIN matches m ON m.season_id = s.id
+                   LEFT JOIN season_player_stats sp ON sp.season_id = s.id
+                   WHERE lower(c.name) = 'icc cricket world cup'
+                     AND s.name = '2023'"""
+            )
+            cwc_matches, cwc_player_rows = cursor.fetchone()
             cursor.execute(
                 """SELECT s.matches, s.innings, s.not_outs, s.runs,
                           s.batting_average, s.balls_faced, s.strike_rate,
@@ -404,6 +591,21 @@ def main() -> None:
             kohli = cursor.fetchone()
             if final_matches != 8232:
                 raise RuntimeError(f"Expected 8,232 PostgreSQL matches, found {final_matches}")
+            if remote_competition_links != local_competition_links:
+                raise RuntimeError(
+                    f"Competition-link verification failed: expected "
+                    f"{local_competition_links}, found {remote_competition_links}"
+                )
+            if remote_season_links != local_season_links:
+                raise RuntimeError(
+                    f"Season-link verification failed: expected "
+                    f"{local_season_links}, found {remote_season_links}"
+                )
+            if cwc_matches != 39 or cwc_player_rows <= 0:
+                raise RuntimeError(
+                    f"CWC 2023 verification failed: matches={cwc_matches}, "
+                    f"player_rows={cwc_player_rows}"
+                )
             normalized_kohli = (
                 *kohli[:4], round(float(kohli[4]), 2), kohli[5],
                 round(float(kohli[6]), 2), kohli[7],

@@ -182,6 +182,38 @@ class DatabaseManager:
                     PRIMARY KEY (player_id, format)
                 )"""
             )
+            cursor.execute(
+                """CREATE TABLE IF NOT EXISTS season_player_stats (
+                    season_id TEXT NOT NULL REFERENCES seasons(id) ON DELETE CASCADE,
+                    player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+                    matches INTEGER DEFAULT 0,
+                    batting_innings INTEGER DEFAULT 0,
+                    not_outs INTEGER DEFAULT 0,
+                    runs INTEGER DEFAULT 0,
+                    balls_faced INTEGER DEFAULT 0,
+                    fours INTEGER DEFAULT 0,
+                    sixes INTEGER DEFAULT 0,
+                    highest_score INTEGER,
+                    fifties INTEGER DEFAULT 0,
+                    hundreds INTEGER DEFAULT 0,
+                    bowling_innings INTEGER DEFAULT 0,
+                    balls_bowled INTEGER DEFAULT 0,
+                    runs_conceded INTEGER DEFAULT 0,
+                    wickets INTEGER DEFAULT 0,
+                    maidens INTEGER DEFAULT 0,
+                    best_wickets INTEGER,
+                    best_runs INTEGER,
+                    PRIMARY KEY (season_id, player_id)
+                )"""
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sps_season_runs "
+                "ON season_player_stats(season_id, runs DESC)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sps_season_wickets "
+                "ON season_player_stats(season_id, wickets DESC)"
+            )
             for table, columns in required.items():
                 existing = {row[1] for row in cursor.execute(f"PRAGMA table_info({table})")}
                 for name, declaration in columns.items():

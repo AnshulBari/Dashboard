@@ -58,3 +58,31 @@ def test_virat_kohli_test_career_matches_authoritative_scorecard():
                  AND s.format = 'Test' AND s.period = 'career'"""
         ).fetchone()
     assert row == (123, 210, 13, 9230, 254, 46.85, 16608, 55.58, 1027, 30, 31, 30)
+
+
+def test_competition_matches_have_editions_and_valid_player_aggregates():
+    with sqlite3.connect(DB_PATH) as conn:
+        missing_editions = conn.execute(
+            """SELECT COUNT(*) FROM matches
+               WHERE competition_id IS NOT NULL AND season_id IS NULL"""
+        ).fetchone()[0]
+        invalid_stats = conn.execute(
+            """SELECT COUNT(*) FROM season_player_stats
+               WHERE matches < 0 OR batting_innings < 0 OR not_outs < 0
+                  OR not_outs > batting_innings OR runs < 0 OR balls_faced < 0
+                  OR bowling_innings < 0 OR wickets < 0 OR balls_bowled < 0
+                  OR runs_conceded < 0"""
+        ).fetchone()[0]
+        cwc = conn.execute(
+            """SELECT COUNT(DISTINCT m.id), COUNT(DISTINCT sp.player_id)
+               FROM competitions c
+               JOIN seasons s ON s.competition_id = c.id
+               LEFT JOIN matches m ON m.season_id = s.id
+               LEFT JOIN season_player_stats sp ON sp.season_id = s.id
+               WHERE c.name = 'ICC Cricket World Cup' AND s.name = '2023'"""
+        ).fetchone()
+
+    assert missing_editions == 0
+    assert invalid_stats == 0
+    assert cwc[0] == 39
+    assert cwc[1] > 0

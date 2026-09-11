@@ -4,6 +4,7 @@ import {
   Activity, BarChart3, CircleUserRound, LayoutDashboard, MapPin,
   Menu, Radio, Search, Shield, Swords, Trophy, Users, X,
 } from 'lucide-react'
+import { competitionApi } from '@/lib/api'
 
 const navItems = [
   { to: '/', label: 'Overview', icon: LayoutDashboard },
@@ -27,6 +28,7 @@ const FORMATS = [
 export default function Layout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [searchPending, setSearchPending] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const location = useLocation()
@@ -39,15 +41,31 @@ export default function Layout() {
     setSearchParams(params)
   }
 
-  const submitSearch = (event: FormEvent) => {
+  const submitSearch = async (event: FormEvent) => {
     event.preventDefault()
     const term = query.trim()
     if (!term) return
-    const params = new URLSearchParams()
-    params.set('search', term)
-    if (currentFormat !== 'International') params.set('format', currentFormat)
-    navigate(`/players?${params.toString()}`)
-    setMobileMenuOpen(false)
+    setSearchPending(true)
+    try {
+      const resolved = await competitionApi.resolve(term)
+      if (resolved.match) {
+        navigate(`/competitions/${resolved.match.id}?season=${resolved.match.season_id}`)
+      } else {
+        const params = new URLSearchParams()
+        params.set('search', term)
+        if (currentFormat !== 'International') params.set('format', currentFormat)
+        navigate(`/players?${params.toString()}`)
+      }
+      setMobileMenuOpen(false)
+    } catch {
+      const params = new URLSearchParams()
+      params.set('search', term)
+      if (currentFormat !== 'International') params.set('format', currentFormat)
+      navigate(`/players?${params.toString()}`)
+      setMobileMenuOpen(false)
+    } finally {
+      setSearchPending(false)
+    }
   }
 
   return (
@@ -68,8 +86,9 @@ export default function Layout() {
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search players..."
-              aria-label="Search players"
+              placeholder="Players or tournaments..."
+              aria-label="Search players or tournaments"
+              disabled={searchPending}
             />
             <kbd>Enter</kbd>
           </form>
@@ -139,8 +158,9 @@ export default function Layout() {
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search players..."
-                aria-label="Search players"
+                placeholder="Players or tournaments..."
+                aria-label="Search players or tournaments"
+                disabled={searchPending}
               />
             </form>
             {navItems.map((item) => (

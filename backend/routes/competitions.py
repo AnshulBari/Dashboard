@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from backend.utils.database import get_db
 from backend.utils.validation import format_scope_clause, validate_uuid
+from backend.services.tournaments import search_competitions, tournament_dashboard
 
 router = APIRouter()
 
@@ -20,6 +21,17 @@ def _row_to_dict(row) -> dict:
     if row is None:
         return None
     return dict(row._mapping)
+
+
+@router.get("/search")
+async def search_competition_editions(
+    q: str = Query(..., min_length=2, max_length=100),
+    limit: int = Query(5, ge=1, le=10),
+    db: Session = Depends(get_db),
+):
+    """Resolve familiar tournament names and aliases to a specific edition."""
+    results = search_competitions(db, q, limit)
+    return {"query": q, "match": results[0] if results else None, "results": results}
 
 
 @router.get("/")
@@ -126,3 +138,19 @@ async def list_seasons(competition_id: str, db: Session = Depends(get_db)):
         seasons.append(d)
 
     return {"seasons": seasons, "total": len(seasons)}
+
+
+@router.get("/{competition_id}/dashboard")
+async def get_competition_dashboard(
+    competition_id: str,
+    season_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Return one complete, compact dashboard for a tournament edition."""
+    validate_uuid(competition_id, "competition_id")
+    if season_id:
+        validate_uuid(season_id, "season_id")
+    result = tournament_dashboard(db, competition_id, season_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Competition edition not found")
+    return result

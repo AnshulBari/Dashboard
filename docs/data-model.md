@@ -85,6 +85,21 @@ Players are **format-independent** — the same player identity appears across a
 | start_date | DATE | Season start |
 | end_date | DATE | Season end |
 
+### season_player_stats
+
+Compact, precomputed player totals for a single competition edition. The table
+is rebuilt from official source scorecards and keeps tournament pages independent
+of the delivery table in production.
+
+| Column group | Description |
+|--------------|-------------|
+| `season_id`, `player_id` | Composite primary key and edition/player links |
+| `matches`, `batting_innings`, `not_outs` | Participation and dismissal counts |
+| `runs`, `balls_faced`, `fours`, `sixes` | Batting production |
+| `highest_score`, `fifties`, `hundreds` | Batting milestones |
+| `bowling_innings`, `balls_bowled`, `runs_conceded` | Bowling workload |
+| `wickets`, `maidens`, `best_wickets`, `best_runs` | Bowling production and best figures |
+
 ### format_config
 
 | Column | Type | Description |
