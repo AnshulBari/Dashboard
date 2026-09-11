@@ -6,8 +6,10 @@ import sqlite3
 from pathlib import Path
 
 from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 from backend.services.analytics import match_detail
+from backend.routes.players import _competition_season_players
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -191,3 +193,24 @@ def test_world_cup_final_scorecard_contract_is_innings_and_team_correct():
     assert card["innings"][0]["batting"][0]["player_name"] == "Rohit Sharma"
     assert card["innings"][1]["batting"][0]["player_name"] == "David Warner"
     assert card["innings"][1]["batting"][1]["runs"] == 137
+
+
+def test_latest_ipl_leaderboards_are_season_scoped_with_franchise_teams():
+    engine = create_engine(f"sqlite:///{DB_PATH.as_posix()}")
+    with Session(engine) as db:
+        batting = _competition_season_players(
+            db, "Indian Premier League", "latest", "career_runs", "desc", 5, 0
+        )
+        bowling = _competition_season_players(
+            db, "Indian Premier League", "latest", "career_wickets", "desc", 5, 0
+        )
+
+    assert batting["season"]["name"] == "2026"
+    assert [(row["name"], row["career_runs"], row["team_name"]) for row in batting["players"][:3]] == [
+        ("V Suryavanshi", 776, "Rajasthan Royals"),
+        ("Shubman Gill", 732, "Gujarat Titans"),
+        ("B Sai Sudharsan", 722, "Gujarat Titans"),
+    ]
+    assert (bowling["players"][0]["name"], bowling["players"][0]["career_wickets"], bowling["players"][0]["team_name"]) == (
+        "Kagiso Rabada", 29, "Gujarat Titans",
+    )

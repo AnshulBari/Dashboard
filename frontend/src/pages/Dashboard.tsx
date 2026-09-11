@@ -53,9 +53,14 @@ function metricValue(player: PlayerRow, tab: PlayerTab) {
   return player.impact_score?.toFixed(1) ?? '—'
 }
 
+function profileHref(playerId: string, format: string) {
+  if (format === 'International' || format === 'T20') return `/players/${playerId}`
+  return `/players/${playerId}?format=${format}`
+}
+
 function PerformerRow({ player, index, tab, format }: { player: PlayerRow; index: number; tab: PlayerTab; format: string }) {
   return (
-    <Link to={`/players/${player.id}${format === 'International' ? '' : `?format=${format}`}`} className="performer-row group">
+    <Link to={profileHref(player.id, format)} className="performer-row group">
       <div className="performer-rank">{String(index + 1).padStart(2, '0')}</div>
       <PlayerPortrait name={player.name} fullName={player.full_name} imageUrl={player.image_url} size="sm" />
       <div className="min-w-0 flex-1">
@@ -161,10 +166,13 @@ export default function Dashboard() {
   const formatParam = format
   const activePlayerTab = playerTabs.find((tab) => tab.key === playerTab)!
   const fullMembersOnly = format !== 'T20'
+  const isIpl = format === 'T20'
 
   const players = usePlayerList({
     format: formatParam, sort_by: activePlayerTab.sort, limit: 10,
-    full_members_only: fullMembersOnly, recent_only: true,
+    full_members_only: fullMembersOnly, recent_only: !isIpl,
+    competition: isIpl ? 'Indian Premier League' : undefined,
+    season: isIpl ? 'latest' : undefined,
   })
   const teams = useTeamList({
     format: formatParam, sort_by: 'win_rate', limit: 12,
@@ -215,10 +223,19 @@ export default function Dashboard() {
             <div className="panel-header block">
               <div className="mb-3 flex items-center justify-between">
                 <div>
-                  <p className="panel-kicker">18-month leaderboard</p>
-                  <h2 className="mt-1 font-display text-sm font-semibold text-white">Recent performers</h2>
+                  <p className="panel-kicker">
+                    {isIpl ? `${players.data?.season?.name || 'Latest'} IPL leaderboard` : '18-month leaderboard'}
+                  </p>
+                  <h2 className="mt-1 font-display text-sm font-semibold text-white">
+                    {isIpl ? 'Season performers' : 'Recent performers'}
+                  </h2>
                 </div>
-                <Link to="/players" className="section-link">See all</Link>
+                <Link
+                  to={isIpl && players.data?.competition && players.data?.season
+                    ? `/competitions/${players.data.competition.id}?season=${players.data.season.id}`
+                    : '/players'}
+                  className="section-link"
+                >See all</Link>
               </div>
               <div className="tabs">
                 {playerTabs.map((tab) => (
@@ -290,7 +307,7 @@ export default function Dashboard() {
                 <h2>{featuredPlayer?.full_name || featuredPlayer?.name || 'Cricket Intelligence'}</h2>
                 <p>{featuredPlayer?.team_name || featuredPlayer?.country || 'Historical performance model'}</p>
                 {featuredPlayer && (
-                  <Link to={`/players/${featuredPlayer.id}${format === 'International' ? '' : `?format=${format}`}`} className="btn-primary mt-5 gap-2">
+                  <Link to={profileHref(featuredPlayer.id, format)} className="btn-primary mt-5 gap-2">
                     Open player intelligence <ArrowUpRight className="h-3.5 w-3.5" />
                   </Link>
                 )}

@@ -712,6 +712,11 @@ records, and top-player aggregates; the API reports `scorecards_indexed`
 separately from official `matches` so partial source coverage is never presented
 as complete.
 
+The dashboard's T20 view is IPL-specific: its player leaderboard resolves the
+latest available IPL season, uses edition-only batting, bowling, and Impact
+scores, and derives each displayed franchise from that season's scorecards.
+Player detail routes retain International as their default scope.
+
 #### Matchups
 
 | Method | Endpoint | Description |

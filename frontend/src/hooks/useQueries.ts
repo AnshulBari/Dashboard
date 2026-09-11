@@ -19,6 +19,8 @@ export function usePlayerList(params?: {
   offset?: number
   full_members_only?: boolean
   recent_only?: boolean
+  competition?: string
+  season?: string
 }) {
   return useQuery({
     queryKey: queryKeys.player.list(params as Record<string, string>),

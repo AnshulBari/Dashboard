@@ -142,6 +142,8 @@ export const playerApi = {
     offset?: number
     full_members_only?: boolean
     recent_only?: boolean
+    competition?: string
+    season?: string
   }) => {
     const query = new URLSearchParams()
     if (params?.format) query.set('format', params.format)
@@ -154,7 +156,9 @@ export const playerApi = {
     if (params?.offset) query.set('offset', String(params.offset))
     if (params?.full_members_only) query.set('full_members_only', 'true')
     if (params?.recent_only) query.set('recent_only', 'true')
-    return fetchJson<{ players: PlayerRow[]; total: number; limit: number; offset: number }>(`/players/?${query}`)
+    if (params?.competition) query.set('competition', params.competition)
+    if (params?.season) query.set('season', params.season)
+    return fetchJson<PlayerListResponse>(`/players/?${query}`)
   },
   
   get: (id: string, format?: string) => {
@@ -360,6 +364,23 @@ export interface PlayerRow {
   strike_rate: number | null
   career_runs: number | null
   career_wickets: number | null
+}
+
+export interface PlayerListResponse {
+  players: PlayerRow[]
+  total: number
+  limit: number
+  offset: number
+  format?: string
+  competition?: { id: string; name: string }
+  season?: {
+    id: string
+    name: string
+    start_date: string | null
+    end_date: string | null
+    matches: number
+    last_match_date: string | null
+  }
 }
 
 export interface PlayerDetail {

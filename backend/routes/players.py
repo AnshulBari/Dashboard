@@ -8,6 +8,7 @@ Queries the database for precomputed analytical results.
 
 from fastapi import APIRouter, Query, HTTPException, Depends
 from datetime import date, timedelta
+import math
 from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -35,6 +36,162 @@ def _row_to_dict(row) -> dict:
 
 
 SAFE_NOT_OUTS_SQL = safe_not_outs_sql()
+
+
+def _percentile_scores(rows: list[dict], key: str, valid, invert: bool = False) -> dict[str, float]:
+    """Return tie-aware percentile ranks keyed by player ID."""
+    eligible = [row for row in rows if valid(row) and row.get(key) is not None]
+    values = sorted(float(row[key]) for row in eligible)
+    if not values:
+        return {}
+    scores = {}
+    for row in eligible:
+        value = float(row[key])
+        first = values.index(value) + 1
+        last = len(values) - values[::-1].index(value)
+        rank = (first + last) / 2
+        percentile = rank / len(values) * 100.0
+        scores[str(row["id"])] = 100.0 - percentile + (100.0 / len(values)) if invert else percentile
+    return scores
+
+
+def _season_impact_scores(rows: list[dict]) -> None:
+    """Calculate role-aware impact entirely within one competition edition."""
+    bat_valid = lambda row: int(row.get("batting_innings") or 0) >= 3
+    bowl_valid = lambda row: int(row.get("bowling_innings") or 0) >= 3 and int(row.get("balls_bowled") or 0) > 0
+    bat_average = _percentile_scores(rows, "batting_average", bat_valid)
+    bat_strike = _percentile_scores(rows, "strike_rate", bat_valid)
+    bat_volume_rows = [{**row, "run_volume": math.log1p(int(row.get("career_runs") or 0))} for row in rows]
+    bat_volume = _percentile_scores(bat_volume_rows, "run_volume", bat_valid)
+    wicket_rate_rows = [{
+        **row,
+        "wickets_per_innings": (
+            int(row.get("career_wickets") or 0) / int(row.get("bowling_innings") or 1)
+        ),
+        "wicket_volume": math.log1p(int(row.get("career_wickets") or 0)),
+    } for row in rows]
+    wicket_rate = _percentile_scores(wicket_rate_rows, "wickets_per_innings", bowl_valid)
+    bowl_economy = _percentile_scores(rows, "economy", bowl_valid, invert=True)
+    wicket_volume = _percentile_scores(wicket_rate_rows, "wicket_volume", bowl_valid)
+
+    for row in rows:
+        player_id = str(row["id"])
+        batting = None
+        if player_id in bat_average:
+            raw = bat_average[player_id] * .45 + bat_strike[player_id] * .25 + bat_volume[player_id] * .30
+            innings = int(row.get("batting_innings") or 0)
+            batting = 50 + (raw - 50) * innings / (innings + 8)
+        bowling = None
+        if player_id in wicket_rate:
+            raw = wicket_rate[player_id] * .45 + bowl_economy[player_id] * .25 + wicket_volume[player_id] * .30
+            innings = int(row.get("bowling_innings") or 0)
+            bowling = 50 + (raw - 50) * innings / (innings + 8)
+        if batting is not None and bowling is not None:
+            impact = max(batting, bowling) * .75 + min(batting, bowling) * .25
+        else:
+            impact = batting if batting is not None else bowling
+        row["impact_score"] = round(max(0.0, min(100.0, impact)), 2) if impact is not None else None
+
+
+def _competition_season_players(
+    db: Session, competition: str, season: str | None, sort_by: str,
+    sort_order: str, limit: int, offset: int,
+) -> dict:
+    competition_value = "Indian Premier League" if competition.strip().casefold() == "ipl" else competition.strip()
+    params = {"competition": competition_value}
+    season_filter = ""
+    if season and season.strip().casefold() != "latest":
+        params["season"] = season.strip()
+        season_filter = "AND (CAST(s.id AS TEXT) = :season OR s.name = :season)"
+    selected = db.execute(text(f"""
+        SELECT s.id, s.name, s.start_date, s.end_date,
+               c.id AS competition_id, c.name AS competition_name,
+               COUNT(m.id) AS matches, MAX(m.match_date) AS last_match_date
+        FROM seasons s
+        JOIN competitions c ON c.id = s.competition_id
+        LEFT JOIN matches m ON m.season_id = s.id
+        WHERE (LOWER(c.name) = LOWER(:competition) OR CAST(c.id AS TEXT) = :competition)
+          {season_filter}
+        GROUP BY s.id, s.name, s.start_date, s.end_date, c.id, c.name
+        HAVING COUNT(m.id) > 0
+        ORDER BY MAX(m.match_date) DESC, s.end_date DESC, s.start_date DESC, s.name DESC
+        LIMIT 1
+    """), params).fetchone()
+    if not selected:
+        raise HTTPException(status_code=404, detail="Competition season not found")
+
+    rows = db.execute(text("""
+        WITH appearances AS (
+            SELECT b.player_id, b.batting_team_id AS team_id, b.match_id, m.match_date
+            FROM match_batting_summary b JOIN matches m ON m.id = b.match_id
+            WHERE m.season_id = :season_id
+            UNION
+            SELECT b.player_id, b.bowling_team_id AS team_id, b.match_id, m.match_date
+            FROM match_bowling_summary b JOIN matches m ON m.id = b.match_id
+            WHERE m.season_id = :season_id
+        ), team_activity AS (
+            SELECT player_id, team_id, COUNT(DISTINCT match_id) AS matches,
+                   MAX(match_date) AS last_match_date
+            FROM appearances GROUP BY player_id, team_id
+        ), ranked_team AS (
+            SELECT player_id, team_id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY player_id
+                       ORDER BY matches DESC, last_match_date DESC, team_id
+                   ) AS team_rank
+            FROM team_activity
+        )
+        SELECT p.id, p.canonical_name AS name, p.full_name, p.role, p.country,
+               t.canonical_name AS team_name,
+               sp.matches, sp.batting_innings, sp.bowling_innings,
+               sp.runs AS career_runs, sp.wickets AS career_wickets,
+               ROUND(1.0 * sp.runs / NULLIF(sp.batting_innings - sp.not_outs, 0), 2) AS batting_average,
+               ROUND(100.0 * sp.runs / NULLIF(sp.balls_faced, 0), 2) AS strike_rate,
+               ROUND(6.0 * sp.runs_conceded / NULLIF(sp.balls_bowled, 0), 2) AS economy,
+               sp.balls_bowled
+        FROM season_player_stats sp
+        JOIN players p ON p.id = sp.player_id
+        LEFT JOIN ranked_team rt ON rt.player_id = sp.player_id AND rt.team_rank = 1
+        LEFT JOIN teams t ON t.id = rt.team_id
+        WHERE sp.season_id = :season_id
+          AND (sp.batting_innings > 0 OR sp.bowling_innings > 0)
+    """), {"season_id": str(selected.id)}).fetchall()
+    players = [sanitize_stat_record(dict(row._mapping)) for row in rows]
+    for player in players:
+        player["id"] = str(player["id"])
+    _season_impact_scores(players)
+
+    sort_keys = {
+        "impact_score": "impact_score", "name": "name", "runs": "career_runs",
+        "career_runs": "career_runs", "wickets": "career_wickets",
+        "career_wickets": "career_wickets", "batting_average": "batting_average",
+        "strike_rate": "strike_rate",
+    }
+    sort_key = sort_keys.get(sort_by, "impact_score")
+    descending = validate_sort_order(sort_order) == "DESC"
+    players.sort(
+        key=lambda row: (row.get(sort_key) is not None, row.get(sort_key) or 0),
+        reverse=descending,
+    )
+    total = len(players)
+    players = players[offset:offset + limit]
+    for player in players:
+        player["image_url"] = get_player_image_url(
+            player.get("name"), player.get("full_name"), player["id"]
+        )
+        for internal in ("matches", "batting_innings", "bowling_innings", "economy", "balls_bowled"):
+            player.pop(internal, None)
+
+    season_data = dict(selected._mapping)
+    for key in ("id", "competition_id"):
+        season_data[key] = str(season_data[key])
+    return {
+        "players": players, "total": total, "limit": limit, "offset": offset,
+        "format": "T20", "competition": {
+            "id": season_data.pop("competition_id"),
+            "name": season_data.pop("competition_name"),
+        }, "season": season_data,
+    }
 
 
 def _player_display_team(db: Session, player_id: str, scope: str, fallback: str | None) -> str | None:
@@ -116,6 +273,8 @@ async def list_players(
     offset: int = Query(0, ge=0),
     full_members_only: bool = Query(False, description="Restrict to the 12 ICC Full Members"),
     recent_only: bool = Query(False, description="Require activity during the recent-performance window"),
+    competition: Optional[str] = Query(None, description="Competition name or ID"),
+    season: Optional[str] = Query(None, description="Season name, ID, or latest"),
     db: Session = Depends(get_db),
 ):
     """
@@ -123,6 +282,12 @@ async def list_players(
 
     Returns player summary including Impact Score and batting/bowling stats.
     """
+    if isinstance(competition, str) and competition.strip():
+        return _competition_season_players(
+            db, competition, season if isinstance(season, str) else None,
+            sort_by, sort_order, limit, offset,
+        )
+
     target_format, batting_filter, params = format_scope_clause("format", format)
     _, bowling_filter, bowling_params = format_scope_clause("format", format)
     _, form_filter, form_params = format_scope_clause("format", format)
