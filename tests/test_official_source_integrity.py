@@ -5,6 +5,10 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from sqlalchemy import create_engine
+
+from backend.services.analytics import match_detail
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "data" / "cricket_intelligence.db"
@@ -86,3 +90,58 @@ def test_competition_matches_have_editions_and_valid_player_aggregates():
     assert invalid_stats == 0
     assert cwc[0] == 39
     assert cwc[1] > 0
+
+
+def test_match_scorecards_cover_every_match_and_use_the_innings_teams():
+    with sqlite3.connect(DB_PATH) as conn:
+        coverage = conn.execute(
+            """SELECT
+                   (SELECT COUNT(DISTINCT match_id) FROM match_batting_summary),
+                   (SELECT COUNT(DISTINCT match_id) FROM match_bowling_summary),
+                   (SELECT COUNT(*) FROM matches)"""
+        ).fetchone()
+        mismatches = conn.execute(
+            """SELECT
+                 (SELECT COUNT(*) FROM match_batting_summary b
+                  JOIN innings i ON i.id = b.innings_id
+                  WHERE b.match_id != i.match_id
+                     OR b.batting_team_id != i.batting_team_id),
+                 (SELECT COUNT(*) FROM match_bowling_summary b
+                  JOIN innings i ON i.id = b.innings_id
+                  WHERE b.match_id != i.match_id
+                     OR b.bowling_team_id != i.bowling_team_id)"""
+        ).fetchone()
+        missing = conn.execute(
+            """SELECT
+                 (SELECT COUNT(*) FROM innings i LEFT JOIN match_batting_summary b
+                  ON b.innings_id = i.id WHERE b.id IS NULL),
+                 (SELECT COUNT(*) FROM innings i LEFT JOIN match_bowling_summary b
+                  ON b.innings_id = i.id WHERE b.id IS NULL)"""
+        ).fetchone()
+
+    assert coverage == (8232, 8232, 8232)
+    assert mismatches == (0, 0)
+    assert missing == (0, 0)
+
+
+def test_world_cup_final_scorecard_contract_is_innings_and_team_correct():
+    engine = create_engine(f"sqlite:///{DB_PATH.as_posix()}")
+    with engine.connect() as conn:
+        match_id = conn.exec_driver_sql(
+            "SELECT id FROM matches WHERE external_id = '1384439'"
+        ).scalar_one()
+        card = match_detail(conn, match_id)
+
+    assert card["competition"] == "ICC Cricket World Cup"
+    assert card["season"] == "2023"
+    assert card["result"] == "Australia won by 6 wickets"
+    assert [
+        (item["team"], item["runs"], item["wickets"], item["overs"], item["extras"])
+        for item in card["innings"]
+    ] == [
+        ("India", 240, 10, 50.0, 12),
+        ("Australia", 241, 4, 43.0, 18),
+    ]
+    assert card["innings"][0]["batting"][0]["player_name"] == "Rohit Sharma"
+    assert card["innings"][1]["batting"][0]["player_name"] == "David Warner"
+    assert card["innings"][1]["batting"][1]["runs"] == 137

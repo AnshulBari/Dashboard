@@ -150,6 +150,12 @@ class DatabaseManager:
             "player_form": {
                 "last_match_date": "DATE",
             },
+            "match_batting_summary": {
+                "batting_position": "INTEGER",
+            },
+            "match_bowling_summary": {
+                "bowling_position": "INTEGER",
+            },
         }
         cursor = conn.cursor()
         try:
@@ -815,14 +821,22 @@ class DatabaseManager:
         
         Returns count of innings written.
         """
-        # Extract innings-level rows
-        innings_groups = df.groupby(["match_id", "innings_number"]).agg(
+        # Wides and no-balls do not consume legal balls. Counting raw
+        # deliveries produced impossible values such as 49.1 for a completed
+        # 50-over innings, so retain the source over length as well.
+        innings_df = df.copy()
+        innings_df["legal_ball"] = ~innings_df["extra_type"].isin(
+            ["wide", "wides", "noball", "noballs"]
+        )
+        if "balls_per_over" not in innings_df.columns:
+            innings_df["balls_per_over"] = 6
+        innings_groups = innings_df.groupby(["match_id", "innings_number"]).agg(
             batting_team=("batting_team", "first"),
             bowling_team=("bowling_team", "first"),
             total_runs=("runs_total", "sum"),
             total_wickets=("is_wicket", "sum"),
-            max_over=("over_number", "max"),
-            ball_count=("ball_in_over", "count"),
+            legal_balls=("legal_ball", "sum"),
+            balls_per_over=("balls_per_over", "first"),
             declared=("innings_declared", "first") if "innings_declared" in df.columns else ("is_wicket", "first"),
             all_out=("innings_all_out", "first") if "innings_all_out" in df.columns else ("is_wicket", "first"),
             follow_on=("innings_follow_on", "first") if "innings_follow_on" in df.columns else ("is_wicket", "first"),
@@ -844,8 +858,9 @@ class DatabaseManager:
                 batting_team_id = self._team_ids.get(row["batting_team"], None)
                 bowling_team_id = self._team_ids.get(row["bowling_team"], None)
                 
-                # Calculate overs: max_over + (last_ball / 6)
-                total_overs = float(row["max_over"]) + (row["ball_count"] % 6) / 10.0 if row["ball_count"] > 0 else 0
+                balls_per_over = int(row.get("balls_per_over", 6) or 6)
+                legal_balls = int(row.get("legal_balls", 0) or 0)
+                total_overs = legal_balls // balls_per_over + (legal_balls % balls_per_over) / 10.0
                 
                 # Determine Test-specific fields
                 declared = bool(row.get("declared", False))

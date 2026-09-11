@@ -24,7 +24,7 @@ from data_pipeline.pipeline.analytics import (
 )
 from data_pipeline.pipeline.reader import flatten_match, normalize_result_type
 from data_pipeline.pipeline.player_identity import normalize_player_names
-from data_pipeline.pipeline.scorecards import compute_scorecard_from_json
+from data_pipeline.pipeline.scorecards import compute_innings_totals, compute_scorecard_from_json
 from data_pipeline.pipeline.impact import compute_impact_scores_from_aggregates
 
 
@@ -376,6 +376,58 @@ def test_json_scorecard_calculates_completed_maiden_overs():
         "innings": [{"overs": [{"over": 0, "deliveries": deliveries}]}],
     })
     assert bowling[(0, "Bowler")]["maidens"] == 1
+
+
+def test_innings_totals_use_legal_balls_for_over_notation():
+    legal = {
+        "batter": "Batter", "bowler": "Bowler", "non_striker": "Partner",
+        "runs": {"batter": 0, "extras": 0, "total": 0},
+    }
+    wide = {
+        **legal,
+        "extras": {"wides": 1},
+        "runs": {"batter": 0, "extras": 1, "total": 1},
+    }
+    totals = compute_innings_totals({
+        "info": {
+            "balls_per_over": 6,
+            "players": {"Batters": ["Batter", "Partner"]},
+        },
+        "innings": [{
+            "team": "Batters",
+            "overs": [{"over": 0, "deliveries": [legal, wide, *([legal] * 5)]}],
+        }],
+    })
+    assert totals == [{
+        "innings_number": 1,
+        "total_runs": 1,
+        "total_wickets": 0,
+        "total_overs": 1.0,
+        "declared": False,
+        "all_out": False,
+        "follow_on": False,
+    }]
+
+
+def test_scorecard_keeps_a_zero_ball_not_out_non_striker():
+    batting, _ = compute_scorecard_from_json({
+        "innings": [{"overs": [{"over": 0, "deliveries": [{
+            "batter": "Finisher",
+            "non_striker": "Tailender",
+            "bowler": "Bowler",
+            "runs": {"batter": 4, "extras": 0, "total": 4},
+        }]}]}],
+    })
+    assert batting[(0, "Tailender")] == {
+        "runs": 0,
+        "balls": 0,
+        "fours": 0,
+        "sixes": 0,
+        "is_not_out": True,
+        "dismissal_type": None,
+        "dismissal_bowler": None,
+        "fielder": None,
+    }
 
 
 def test_live_response_preserves_old_key_and_exposes_client_data_key():

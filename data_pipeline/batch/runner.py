@@ -398,6 +398,7 @@ class BatchRunner:
                             "event_name": event_name,
                             "match_number": match_number,
                             "innings_number": innings_idx + 1,
+                            "balls_per_over": int(info.get("balls_per_over", 6) or 6),
                             "over_number": over_number,
                             "ball_in_over": ball_in_over,
                             "batter": batter,

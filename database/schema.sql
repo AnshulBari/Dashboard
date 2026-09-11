@@ -208,6 +208,7 @@ CREATE TABLE match_batting_summary (
     dismissal_type VARCHAR(50),
     bowler_id UUID REFERENCES players(id),
     fielder_id UUID REFERENCES players(id),
+    batting_position INTEGER,
     created_at TIMESTAMP DEFAULT NOW(),
     UNIQUE(match_id, innings_id, player_id)
 );
@@ -230,6 +231,7 @@ CREATE TABLE match_bowling_summary (
     economy FLOAT,
     wides INTEGER DEFAULT 0,
     noballs INTEGER DEFAULT 0,
+    bowling_position INTEGER,
     created_at TIMESTAMP DEFAULT NOW(),
     UNIQUE(match_id, innings_id, player_id)
 );

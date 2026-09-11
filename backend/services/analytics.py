@@ -510,7 +510,7 @@ def match_detail(conn, match_id: str) -> dict:
 
     innings = _query(
         conn,
-        """SELECT i.id, i.innings_number,
+        """SELECT i.id, i.innings_number, i.batting_team_id AS team_id,
                   bt.canonical_name as batting_team,
                   bw.canonical_name as bowling_team,
                   i.total_runs, i.total_wickets, i.total_overs,
@@ -526,38 +526,133 @@ def match_detail(conn, match_id: str) -> dict:
     batting = _query(
         conn,
         """SELECT mbs.innings_id, i.innings_number,
-                  p.canonical_name as player,
+                  p.id AS player_id, p.canonical_name as player_name,
                   bt.canonical_name as team,
                   mbs.runs, mbs.balls, mbs.fours, mbs.sixes,
-                  mbs.strike_rate, mbs.is_not_out, mbs.dismissal_type
+                  mbs.strike_rate, mbs.is_not_out, mbs.dismissal_type,
+                  dp.canonical_name AS dismissal_bowler,
+                  fp.canonical_name AS dismissal_fielder,
+                  COALESCE(mbs.batting_position, 999) AS batting_position
            FROM match_batting_summary mbs
            JOIN innings i ON mbs.innings_id = i.id
            JOIN players p ON mbs.player_id = p.id
            JOIN teams bt ON mbs.batting_team_id = bt.id
+           LEFT JOIN players dp ON mbs.bowler_id = dp.id
+           LEFT JOIN players fp ON mbs.fielder_id = fp.id
            WHERE mbs.match_id = :mid
-           ORDER BY i.innings_number, mbs.runs DESC""",
+           ORDER BY i.innings_number, batting_position, p.canonical_name""",
         {"mid": match_id},
     )
 
     bowling = _query(
         conn,
         """SELECT mbs.innings_id, i.innings_number,
-                  p.canonical_name as player,
+                  p.id AS player_id, p.canonical_name as player_name,
                   bw.canonical_name as team,
-                  mbs.overs, mbs.balls_bowled, mbs.runs_conceded,
-                  mbs.wickets, mbs.economy, mbs.wides, mbs.noballs
+                  mbs.overs, mbs.balls_bowled, mbs.maidens, mbs.runs_conceded,
+                  mbs.wickets, mbs.economy, mbs.wides, mbs.noballs,
+                  COALESCE(mbs.bowling_position, 999) AS bowling_position
            FROM match_bowling_summary mbs
            JOIN innings i ON mbs.innings_id = i.id
            JOIN players p ON mbs.player_id = p.id
            JOIN teams bw ON mbs.bowling_team_id = bw.id
            WHERE mbs.match_id = :mid
-           ORDER BY i.innings_number, mbs.wickets DESC""",
+           ORDER BY i.innings_number, bowling_position, p.canonical_name""",
         {"mid": match_id},
     )
 
+    def dismissal_text(row: dict) -> str:
+        if row.get("is_not_out"):
+            return "not out"
+        kind = str(row.get("dismissal_type") or "out").replace("_", " ").lower()
+        bowler = row.get("dismissal_bowler")
+        fielder = row.get("dismissal_fielder")
+        if kind == "caught":
+            return " ".join(part for part in (f"c {fielder}" if fielder else "c", f"b {bowler}" if bowler else None) if part)
+        if kind in {"caught and bowled", "caught & bowled"}:
+            return f"c & b {bowler}" if bowler else "caught & bowled"
+        if kind == "bowled":
+            return f"b {bowler}" if bowler else "bowled"
+        if kind == "lbw":
+            return f"lbw b {bowler}" if bowler else "lbw"
+        if kind == "stumped":
+            return " ".join(part for part in (f"st {fielder}" if fielder else "stumped", f"b {bowler}" if bowler else None) if part)
+        if kind == "run out":
+            return f"run out ({fielder})" if fielder else "run out"
+        return f"{kind} b {bowler}" if bowler else kind
+
+    batting_by_innings: dict[int, list[dict]] = {}
+    for row in batting:
+        batting_by_innings.setdefault(row["innings_number"], []).append({
+            "player_id": str(row["player_id"]) if row.get("player_id") else None,
+            "player_name": row["player_name"],
+            "runs": row["runs"],
+            "balls": row["balls"],
+            "fours": row["fours"],
+            "sixes": row["sixes"],
+            "strike_rate": row["strike_rate"],
+            "dismissal": dismissal_text(row),
+        })
+
+    bowling_by_innings: dict[int, list[dict]] = {}
+    for row in bowling:
+        bowling_by_innings.setdefault(row["innings_number"], []).append({
+            "player_id": str(row["player_id"]) if row.get("player_id") else None,
+            "player_name": row["player_name"],
+            "overs": row["overs"],
+            "balls_bowled": row["balls_bowled"],
+            "maidens": row["maidens"],
+            "runs": row["runs_conceded"],
+            "wickets": row["wickets"],
+            "economy": row["economy"],
+            "wides": row["wides"],
+            "noballs": row["noballs"],
+        })
+
+    api_innings = []
+    for row in innings:
+        number = row["innings_number"]
+        batters = batting_by_innings.get(number, [])
+        batter_runs = sum(player.get("runs") or 0 for player in batters)
+        api_innings.append({
+            "innings_number": number,
+            "team": row["batting_team"],
+            # Keep the original field names for older API consumers while the
+            # nested scorecard contract uses the shorter UI-facing aliases.
+            "batting_team": row["batting_team"],
+            "team_id": str(row["team_id"]) if row.get("team_id") else None,
+            "bowling_team": row["bowling_team"],
+            "runs": row["total_runs"],
+            "total_runs": row["total_runs"],
+            "wickets": row["total_wickets"],
+            "total_wickets": row["total_wickets"],
+            "overs": row["total_overs"],
+            "total_overs": row["total_overs"],
+            "extras": max((row.get("total_runs") or 0) - batter_runs, 0),
+            "declared": bool(row.get("declared")),
+            "all_out": bool(row.get("all_out")),
+            "follow_on": bool(row.get("follow_on")),
+            "batting": batters,
+            "bowling": bowling_by_innings.get(number, []),
+        })
+
     result = match[0]
     result["id"] = str(result["id"])
-    result["innings"] = innings
+    result["match_id"] = result["id"]
+    if result.get("result_type") == "draw":
+        result["result"] = "Draw"
+    elif result.get("result_type") == "tie":
+        result["result"] = "Tie"
+    elif result.get("result_type") in {"no_result", "abandoned"}:
+        result["result"] = "No result" if result["result_type"] == "no_result" else "Abandoned"
+    elif result.get("winner"):
+        margin = f" by {result['win_margin']} {result['win_type']}" if result.get("win_margin") is not None and result.get("win_type") else ""
+        result["result"] = f"{result['winner']} won{margin}"
+    else:
+        result["result"] = "Result unavailable"
+    result["innings"] = api_innings
+    # Backward-compatible flattened views retained for analytics clients that
+    # predate the per-innings scorecard response used by the frontend.
     result["batting"] = batting
     result["bowling"] = bowling
     return result

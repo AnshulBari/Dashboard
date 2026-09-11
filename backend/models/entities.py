@@ -497,6 +497,7 @@ class MatchBattingSummary(Base):
     dismissal_type = Column(String(50))
     bowler_id = Column(UUID(as_uuid=True), ForeignKey("players.id"))
     fielder_id = Column(UUID(as_uuid=True), ForeignKey("players.id"))
+    batting_position = Column(Integer)
     created_at = Column(DateTime, default=utc_now)
     
     __table_args__ = (
@@ -523,6 +524,7 @@ class MatchBowlingSummary(Base):
     economy = Column(Float)
     wides = Column(Integer, default=0)
     noballs = Column(Integer, default=0)
+    bowling_position = Column(Integer)
     created_at = Column(DateTime, default=utc_now)
     
     __table_args__ = (

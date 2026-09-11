@@ -55,7 +55,7 @@ The platform ingests **ball-by-ball cricket data** from [Cricsheet](https://cric
 - **ODI:** 2,569 matches / 1,362,695 deliveries
 - **Test:** 892 matches / 1,717,594 deliveries
 
-**Production database (compact serving layer):** 143 MB on Supabase Free Plan
+**Production database:** compact Supabase serving layer
 - All analytics, scorecards, and entity data served from compact tables
 - Raw ball-by-ball deliveries preserved offline in Cricsheet JSON
 
@@ -537,6 +537,9 @@ python -m data_pipeline.pipeline.run --format ipl --force --sample 50
 
 # Rebuild compact player totals for every competition edition
 python scripts/rebuild_season_player_stats.py
+
+# Rebuild ordered match scorecards and authoritative innings totals
+python scripts/rebuild_match_scorecards.py
 ```
 
 ### Batch processing (for large historical datasets)
@@ -697,7 +700,9 @@ http://localhost:8000
 
 Tournament search is attempted before global search falls back to players. Edition
 player leaderboards are served from compact precomputed `season_player_stats`
-rows; delivery-level data is never read by the API.
+rows. Clicking a result opens its ordered, innings-by-innings batting and bowling
+scorecard from `match_batting_summary` and `match_bowling_summary`; delivery-level
+data is never read by the API.
 
 #### Matchups
 
@@ -1095,12 +1100,9 @@ Comprehensive audit of the existing frontend codebase (15 pages, React 18 + Type
 
 Complete frontend rebuild with dark premium cricket intelligence design system. Created centralized typed API client (`lib/api.ts`) and 30+ React Query hooks (`hooks/useQueries.ts`). Built responsive application shell with mobile hamburger nav and global format filter. Rebuilt main Dashboard with real backend data: live matches (30-second refresh), top performers by form score, recent results, and venue insights. Updated all pages (Players, Teams, Matches, Venues, Matchups, Rankings, Live) to use React Query + dark theme. Replaced mock data in TeamDetail and VenueDetail with real API calls. Removed News page (was 100% hardcoded). Created shared UI components: Skeleton, ErrorCard, EmptyState, FormatBadge. TypeScript clean, Vite build passes (74KB gzipped). 230 backend tests pass. Database: 150 MB. See `docs/phase-6.2b.md`.
 
-### Not yet implemented (Phase 6.2C+)
+### Potential future enhancements
 
 - Player Detail format switcher + career progression charts
-- Match Detail page with scorecards
-- Competitions page
-- Global search functionality
 - Dashboard charts (Recharts)
 - Head-to-head team comparison
 

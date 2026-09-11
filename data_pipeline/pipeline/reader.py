@@ -169,6 +169,7 @@ def flatten_match(data: dict, filename: str = "") -> list[dict]:
                     "win_by_innings": win_by.get("innings") if isinstance(win_by, dict) else None,
                     "player_of_match": player_of_match,
                     "innings_number": innings_idx + 1,  # 1-indexed
+                    "balls_per_over": int(info.get("balls_per_over", 6) or 6),
                     "over_number": over_number,
                     "ball_in_over": ball_in_over,
                     "batter": batter,

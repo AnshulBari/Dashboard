@@ -210,12 +210,16 @@ async def get_match(match_id: str, db: Session = Depends(get_db)):
                 ta.canonical_name AS team_a,
                 tb.canonical_name AS team_b,
                 tw.canonical_name AS winner,
-                v.name AS venue
+                v.name AS venue,
+                c.name AS competition_name,
+                s.name AS season_name
             FROM matches m
             LEFT JOIN teams ta ON m.team_a_id = ta.id
             LEFT JOIN teams tb ON m.team_b_id = tb.id
             LEFT JOIN teams tw ON m.winner_id = tw.id
             LEFT JOIN venues v ON m.venue_id = v.id
+            LEFT JOIN competitions c ON m.competition_id = c.id
+            LEFT JOIN seasons s ON m.season_id = s.id
             WHERE m.id = :mid
         """),
         {"mid": match_id}

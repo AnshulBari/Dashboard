@@ -27,6 +27,8 @@ from purge_reconstructed_matches import RECONSTRUCTED_IDS
 ROOT = Path(__file__).resolve().parents[1]
 SQLITE_PATH = ROOT / "data" / "cricket_intelligence.db"
 TABLES = (
+    "match_batting_summary",
+    "match_bowling_summary",
     "player_batting_stats",
     "player_bowling_stats",
     "batter_bowler_matchups",
@@ -182,6 +184,41 @@ def _season_id_map(
     return mapping, len(local_rows), len(remote_rows)
 
 
+def _match_id_map(cursor, local: sqlite3.Connection) -> tuple[dict[str, str], int, int]:
+    local_rows = local.execute("SELECT id, external_id FROM matches").fetchall()
+    cursor.execute("SELECT id::text, external_id FROM matches")
+    remote_rows = cursor.fetchall()
+    remote_by_external = {str(row[1]): str(row[0]) for row in remote_rows}
+    mapping = {
+        str(match_id): remote_by_external[str(external_id)]
+        for match_id, external_id in local_rows
+        if str(external_id) in remote_by_external
+    }
+    return mapping, len(local_rows), len(remote_rows)
+
+
+def _innings_id_map(cursor, local: sqlite3.Connection) -> tuple[dict[str, str], int, int]:
+    local_rows = local.execute(
+        """SELECT i.id, m.external_id, i.innings_number
+           FROM innings i JOIN matches m ON m.id = i.match_id"""
+    ).fetchall()
+    cursor.execute(
+        """SELECT i.id::text, m.external_id, i.innings_number
+           FROM innings i JOIN matches m ON m.id = i.match_id"""
+    )
+    remote_rows = cursor.fetchall()
+    remote_by_key = {
+        (str(external_id), int(number)): str(innings_id)
+        for innings_id, external_id, number in remote_rows
+    }
+    mapping = {
+        str(innings_id): remote_by_key[(str(external_id), int(number))]
+        for innings_id, external_id, number in local_rows
+        if (str(external_id), int(number)) in remote_by_key
+    }
+    return mapping, len(local_rows), len(remote_rows)
+
+
 def _insert_missing_competitions(
     cursor, local: sqlite3.Connection, competition_ids: dict[str, str]
 ) -> int:
@@ -242,6 +279,43 @@ def _sync_match_dimensions(
     return len(rows)
 
 
+def _sync_innings_totals(
+    cursor, local: sqlite3.Connection, innings_ids: dict[str, str]
+) -> int:
+    rows = [
+        (
+            innings_ids[str(innings_id)],
+            int(total_runs or 0),
+            int(total_wickets or 0),
+            float(total_overs or 0),
+            bool(declared),
+            bool(all_out),
+            bool(follow_on),
+        )
+        for innings_id, total_runs, total_wickets, total_overs, declared, all_out, follow_on
+        in local.execute(
+            """SELECT id, total_runs, total_wickets, total_overs,
+                      declared, all_out, follow_on FROM innings"""
+        )
+        if str(innings_id) in innings_ids
+    ]
+    execute_values(cursor, """
+        UPDATE innings AS i
+        SET total_runs = v.total_runs,
+            total_wickets = v.total_wickets,
+            total_overs = v.total_overs,
+            declared = v.declared,
+            all_out = v.all_out,
+            follow_on = v.follow_on
+        FROM (VALUES %s) AS v(
+            id, total_runs, total_wickets, total_overs,
+            declared, all_out, follow_on
+        )
+        WHERE i.id = v.id::uuid
+    """, rows, page_size=1000)
+    return len(rows)
+
+
 def _replace_table(
     cursor, local: sqlite3.Connection, table: str,
     foreign_keys: dict[str, dict[str, str]],
@@ -257,6 +331,9 @@ def _replace_table(
     skipped = 0
     for local_row in local_rows:
         row = [local_row[index] for index in indices]
+        if table == "match_batting_summary" and "is_not_out" in selected:
+            boolean_index = selected.index("is_not_out")
+            row[boolean_index] = bool(row[boolean_index])
         valid = True
         for column, mapping in foreign_keys.items():
             if column not in selected:
@@ -291,6 +368,10 @@ def _referenced_player_ids(local: sqlite3.Connection) -> set[str]:
            UNION SELECT player_id FROM player_bowling_stats
            UNION SELECT player_id FROM player_recent_stats
            UNION SELECT player_id FROM player_form
+           UNION SELECT player_id FROM match_batting_summary
+           UNION SELECT bowler_id FROM match_batting_summary
+           UNION SELECT fielder_id FROM match_batting_summary
+           UNION SELECT player_id FROM match_bowling_summary
            UNION SELECT batter_id FROM batter_bowler_matchups
            UNION SELECT bowler_id FROM batter_bowler_matchups"""
     ).fetchall()
@@ -351,6 +432,14 @@ def _ensure_remote_analytics_schema(cursor) -> None:
     )
     cursor.execute(
         "ALTER TABLE player_form ADD COLUMN IF NOT EXISTS last_match_date DATE"
+    )
+    cursor.execute(
+        "ALTER TABLE match_batting_summary "
+        "ADD COLUMN IF NOT EXISTS batting_position INTEGER"
+    )
+    cursor.execute(
+        "ALTER TABLE match_bowling_summary "
+        "ADD COLUMN IF NOT EXISTS bowling_position INTEGER"
     )
     cursor.execute(
         """CREATE TABLE IF NOT EXISTS season_player_stats (
@@ -427,6 +516,8 @@ def main() -> None:
             season_ids, local_seasons, remote_seasons = _season_id_map(
                 cursor, local, competition_ids
             )
+            match_id_map, local_matches, remote_matches = _match_id_map(cursor, local)
+            innings_ids, local_innings, remote_innings = _innings_id_map(cursor, local)
             print(f"PostgreSQL matches: {remote_match_count:,}")
             print(f"Reconstructed matches to remove: {fixture_count}")
             print(
@@ -436,7 +527,10 @@ def main() -> None:
                 f"({remote_venues:,} remote), competitions "
                 f"{len(competition_ids):,}/{local_competitions:,} local "
                 f"({remote_competitions:,} remote), seasons "
-                f"{len(season_ids):,}/{local_seasons:,} local ({remote_seasons:,} remote)"
+                f"{len(season_ids):,}/{local_seasons:,} local ({remote_seasons:,} remote), "
+                f"match IDs {len(match_id_map):,}/{local_matches:,} local "
+                f"({remote_matches:,} remote), innings IDs "
+                f"{len(innings_ids):,}/{local_innings:,} local ({remote_innings:,} remote)"
             )
             missing_players = local.execute(
                 "SELECT canonical_name FROM players ORDER BY canonical_name"
@@ -499,9 +593,11 @@ def main() -> None:
             updated_matches = _sync_match_dimensions(
                 cursor, local, competition_ids, season_ids
             )
+            updated_innings = _sync_innings_totals(cursor, local, innings_ids)
             print(
                 f"  synchronized catalog: {added_competitions:,} competitions, "
-                f"{added_seasons:,} seasons, {updated_matches:,} match links",
+                f"{added_seasons:,} seasons, {updated_matches:,} match links, "
+                f"{updated_innings:,} innings totals",
                 flush=True,
             )
 
@@ -516,8 +612,8 @@ def main() -> None:
                 "SELECT id FROM matches WHERE external_id = ANY(%s)",
                 (list(RECONSTRUCTED_IDS),),
             )
-            match_ids = [row[0] for row in cursor.fetchall()]
-            if match_ids:
+            reconstructed_match_ids = [row[0] for row in cursor.fetchall()]
+            if reconstructed_match_ids:
                 for table in (
                     "match_batting_summary", "match_bowling_summary",
                     "deliveries", "innings",
@@ -529,12 +625,24 @@ def main() -> None:
                         sql.SQL("DELETE FROM {} WHERE match_id = ANY(%s::uuid[])").format(
                             sql.Identifier(table)
                         ),
-                        (match_ids,),
+                        (reconstructed_match_ids,),
                     )
-                cursor.execute("DELETE FROM matches WHERE id = ANY(%s::uuid[])", (match_ids,))
+                cursor.execute(
+                    "DELETE FROM matches WHERE id = ANY(%s::uuid[])",
+                    (reconstructed_match_ids,),
+                )
 
             written = {}
             key_maps = {
+                "match_batting_summary": {
+                    "match_id": match_id_map, "innings_id": innings_ids,
+                    "player_id": player_ids, "batting_team_id": team_ids,
+                    "bowler_id": player_ids, "fielder_id": player_ids,
+                },
+                "match_bowling_summary": {
+                    "match_id": match_id_map, "innings_id": innings_ids,
+                    "player_id": player_ids, "bowling_team_id": team_ids,
+                },
                 "player_batting_stats": {"player_id": player_ids},
                 "player_bowling_stats": {"player_id": player_ids},
                 "batter_bowler_matchups": {
@@ -589,6 +697,33 @@ def main() -> None:
                      AND s.format = 'Test' AND s.period = 'career'"""
             )
             kohli = cursor.fetchone()
+            cursor.execute(
+                """SELECT
+                     (SELECT COUNT(DISTINCT match_id) FROM match_batting_summary),
+                     (SELECT COUNT(DISTINCT match_id) FROM match_bowling_summary),
+                     (SELECT COUNT(*) FROM match_batting_summary b
+                      JOIN innings i ON i.id = b.innings_id
+                      WHERE b.match_id != i.match_id
+                         OR b.batting_team_id != i.batting_team_id),
+                     (SELECT COUNT(*) FROM match_bowling_summary b
+                      JOIN innings i ON i.id = b.innings_id
+                      WHERE b.match_id != i.match_id
+                         OR b.bowling_team_id != i.bowling_team_id)"""
+            )
+            scorecard_coverage = cursor.fetchone()
+            cursor.execute(
+                """SELECT i.innings_number, bt.canonical_name,
+                          i.total_runs, i.total_wickets, i.total_overs
+                   FROM innings i
+                   JOIN matches m ON m.id = i.match_id
+                   JOIN teams bt ON bt.id = i.batting_team_id
+                   WHERE m.external_id = '1384439'
+                   ORDER BY i.innings_number"""
+            )
+            cwc_final_innings = [
+                (row[0], row[1], row[2], row[3], round(float(row[4]), 1))
+                for row in cursor.fetchall()
+            ]
             if final_matches != 8232:
                 raise RuntimeError(f"Expected 8,232 PostgreSQL matches, found {final_matches}")
             if remote_competition_links != local_competition_links:
@@ -605,6 +740,17 @@ def main() -> None:
                 raise RuntimeError(
                     f"CWC 2023 verification failed: matches={cwc_matches}, "
                     f"player_rows={cwc_player_rows}"
+                )
+            if scorecard_coverage != (8232, 8232, 0, 0):
+                raise RuntimeError(
+                    f"Scorecard coverage/team verification failed: {scorecard_coverage}"
+                )
+            if cwc_final_innings != [
+                (1, "India", 240, 10, 50.0),
+                (2, "Australia", 241, 4, 43.0),
+            ]:
+                raise RuntimeError(
+                    f"CWC 2023 final innings verification failed: {cwc_final_innings}"
                 )
             normalized_kohli = (
                 *kohli[:4], round(float(kohli[4]), 2), kohli[5],

@@ -23,6 +23,7 @@ Usage:
 import json
 import logging
 import os
+import uuid
 import zipfile
 from pathlib import Path
 from typing import Optional
@@ -42,6 +43,44 @@ NON_BOWLER_DISMISSALS = {
     "handled the ball",
     "timed out",
 }
+
+
+def compute_innings_totals(data: dict) -> list[dict]:
+    """Derive authoritative innings totals and cricket over notation."""
+    info = data.get("info", {})
+    balls_per_over = int(info.get("balls_per_over", 6) or 6)
+    players = info.get("players", {})
+    totals = []
+    for innings_number, innings in enumerate(data.get("innings", []), 1):
+        total_runs = 0
+        total_wickets = 0
+        legal_balls = 0
+        for over in innings.get("overs", []):
+            for delivery in over.get("deliveries", []):
+                total_runs += int(delivery.get("runs", {}).get("total", 0) or 0)
+                extras = delivery.get("extras", {})
+                legal_balls += int("wides" not in extras and "noballs" not in extras)
+                total_wickets += sum(
+                    1 for wicket in delivery.get("wickets", [])
+                    if _wicket_kind(wicket) not in {"retired hurt", "retired not out"}
+                )
+        team = innings.get("team", "")
+        player_count = len(players.get(team, [])) or 11
+        declared = bool(innings.get("declared", False))
+        totals.append({
+            "innings_number": innings_number,
+            "total_runs": total_runs,
+            "total_wickets": total_wickets,
+            "total_overs": round(
+                legal_balls // balls_per_over
+                + (legal_balls % balls_per_over) / 10.0,
+                1,
+            ),
+            "declared": declared,
+            "all_out": not declared and total_wickets >= max(player_count - 1, 1),
+            "follow_on": bool(innings.get("follow_on", False)),
+        })
+    return totals
 
 
 def _wicket_kind(wicket: dict) -> str:
@@ -68,6 +107,7 @@ def compute_scorecard_from_json(data: dict) -> tuple[dict, dict]:
             over_bowling = {}
             for ball_idx, delivery in enumerate(over_data.get("deliveries", [])):
                 batter = delivery.get("batter", "")
+                non_striker = delivery.get("non_striker", "")
                 bowler = delivery.get("bowler", "")
                 runs = delivery.get("runs", {})
                 batter_runs = runs.get("batter", 0)
@@ -82,10 +122,12 @@ def compute_scorecard_from_json(data: dict) -> tuple[dict, dict]:
                     + int(extras.get("noballs", 0) or 0)
                 )
 
-                # Batting aggregation
-                if batter:
-                    key = (innings_idx, batter)
-                    if key not in batting_rows:
+                # Register both players at the crease. A non-striker can finish
+                # not out without facing a ball and must still appear in the
+                # scorecard (for example Mohammed Siraj at Perth in 2024).
+                for player_at_crease in (batter, non_striker):
+                    key = (innings_idx, player_at_crease)
+                    if player_at_crease and key not in batting_rows:
                         batting_rows[key] = {
                             "runs": 0,
                             "balls": 0,
@@ -96,6 +138,9 @@ def compute_scorecard_from_json(data: dict) -> tuple[dict, dict]:
                             "dismissal_bowler": None,
                             "fielder": None,
                         }
+                # Batting aggregation
+                if batter:
+                    key = (innings_idx, batter)
                     agg = batting_rows[key]
                     agg["runs"] += batter_runs
                     if not is_wide:
@@ -404,6 +449,7 @@ class ScorecardGenerator:
 
         # Compute scorecards from JSON (deterministic)
         batting_rows, bowling_rows = compute_scorecard_from_json(data)
+        innings_totals = compute_innings_totals(data)
 
         # Validate
         issues = validate_scorecard(batting_rows, bowling_rows, ext_id)
@@ -421,6 +467,21 @@ class ScorecardGenerator:
             # therefore rolls back the deletes and preserves the prior valid
             # scorecard, as promised by the generator contract.
             with self.engine.begin() as conn:
+                for innings_total in innings_totals:
+                    innings_id = self._get_innings_id(
+                        ext_id, innings_total["innings_number"]
+                    )
+                    if innings_id:
+                        conn.execute(
+                            text(
+                                "UPDATE innings SET total_runs = :total_runs, "
+                                "total_wickets = :total_wickets, total_overs = :total_overs, "
+                                "declared = :declared, all_out = :all_out, "
+                                "follow_on = :follow_on WHERE id = :innings_id"
+                            ),
+                            {**innings_total, "innings_id": innings_id},
+                        )
+
                 # Delete existing scorecard rows for this match first
                 conn.execute(
                     text(
@@ -439,8 +500,11 @@ class ScorecardGenerator:
 
                 # Insert batting summaries (ON CONFLICT for idempotency)
                 bat_inserted = 0
+                batting_positions: dict[int, int] = {}
                 for (innings_idx, player_name), row_stats in batting_rows.items():
                     innings_number = innings_idx + 1
+                    batting_positions[innings_idx] = batting_positions.get(innings_idx, 0) + 1
+                    batting_position = batting_positions[innings_idx]
                     innings_id = self._get_innings_id(ext_id, innings_number)
                     if not innings_id:
                         continue
@@ -462,13 +526,13 @@ class ScorecardGenerator:
                     conn.execute(
                         text(
                             "INSERT INTO match_batting_summary "
-                            "(match_id, innings_id, player_id, batting_team_id, "
+                            "(id, match_id, innings_id, player_id, batting_team_id, "
                             "runs, balls, fours, sixes, strike_rate, is_not_out, "
-                            "dismissal_type, bowler_id, fielder_id) "
+                            "dismissal_type, bowler_id, fielder_id, batting_position) "
                             "VALUES "
-                            "(:match_id, :innings_id, :player_id, :batting_team_id, "
+                            "(:id, :match_id, :innings_id, :player_id, :batting_team_id, "
                             ":runs, :balls, :fours, :sixes, :strike_rate, :is_not_out, "
-                            ":dismissal_type, :bowler_id, :fielder_id) "
+                            ":dismissal_type, :bowler_id, :fielder_id, :batting_position) "
                             "ON CONFLICT (match_id, innings_id, player_id) DO UPDATE SET "
                             "batting_team_id = EXCLUDED.batting_team_id, "
                             "runs = EXCLUDED.runs, "
@@ -479,9 +543,11 @@ class ScorecardGenerator:
                             "is_not_out = EXCLUDED.is_not_out, "
                             "dismissal_type = EXCLUDED.dismissal_type, "
                             "bowler_id = EXCLUDED.bowler_id, "
-                            "fielder_id = EXCLUDED.fielder_id"
+                            "fielder_id = EXCLUDED.fielder_id, "
+                            "batting_position = EXCLUDED.batting_position"
                         ),
                         {
+                            "id": str(uuid.uuid4()),
                             "match_id": match_db_id,
                             "innings_id": innings_id,
                             "player_id": player_id,
@@ -499,14 +565,18 @@ class ScorecardGenerator:
                             "fielder_id": self._resolve_player_id(
                                 row_stats.get("fielder")
                             ),
+                            "batting_position": batting_position,
                         },
                     )
                     bat_inserted += 1
 
                 # Insert bowling summaries (ON CONFLICT for idempotency)
                 bowl_inserted = 0
+                bowling_positions: dict[int, int] = {}
                 for (innings_idx, bowler_name), row_stats in bowling_rows.items():
                     innings_number = innings_idx + 1
+                    bowling_positions[innings_idx] = bowling_positions.get(innings_idx, 0) + 1
+                    bowling_position = bowling_positions[innings_idx]
                     innings_id = self._get_innings_id(ext_id, innings_number)
                     if not innings_id:
                         continue
@@ -531,13 +601,13 @@ class ScorecardGenerator:
                     conn.execute(
                         text(
                             "INSERT INTO match_bowling_summary "
-                            "(match_id, innings_id, player_id, bowling_team_id, "
+                            "(id, match_id, innings_id, player_id, bowling_team_id, "
                             "overs, balls_bowled, maidens, runs_conceded, wickets, "
-                            "economy, wides, noballs) "
+                            "economy, wides, noballs, bowling_position) "
                             "VALUES "
-                            "(:match_id, :innings_id, :player_id, :bowling_team_id, "
+                            "(:id, :match_id, :innings_id, :player_id, :bowling_team_id, "
                             ":overs, :balls_bowled, :maidens, :runs_conceded, :wickets, "
-                            ":economy, :wides, :noballs) "
+                            ":economy, :wides, :noballs, :bowling_position) "
                             "ON CONFLICT (match_id, innings_id, player_id) DO UPDATE SET "
                             "bowling_team_id = EXCLUDED.bowling_team_id, "
                             "overs = EXCLUDED.overs, "
@@ -547,9 +617,11 @@ class ScorecardGenerator:
                             "maidens = EXCLUDED.maidens, "
                             "economy = EXCLUDED.economy, "
                             "wides = EXCLUDED.wides, "
-                            "noballs = EXCLUDED.noballs"
+                            "noballs = EXCLUDED.noballs, "
+                            "bowling_position = EXCLUDED.bowling_position"
                         ),
                         {
+                            "id": str(uuid.uuid4()),
                             "match_id": match_db_id,
                             "innings_id": innings_id,
                             "player_id": player_id,
@@ -562,6 +634,7 @@ class ScorecardGenerator:
                             "economy": round(econ, 2),
                             "wides": row_stats["wides"],
                             "noballs": row_stats["noballs"],
+                            "bowling_position": bowling_position,
                         },
                     )
                     bowl_inserted += 1

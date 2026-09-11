@@ -162,6 +162,25 @@ Pre-seeded configurations:
 | all_out | BOOLEAN | All batters out |
 | follow_on | BOOLEAN | Team was enforced to follow-on |
 
+### match_batting_summary / match_bowling_summary
+
+Compact match scorecards rebuilt deterministically from official Cricsheet JSON.
+Every one of the 8,232 source-backed matches has batting and bowling rows, without
+shipping raw deliveries to the production serving database.
+
+| Column group | Description |
+|--------------|-------------|
+| `match_id`, `innings_id` | Match and innings ownership |
+| `player_id`, batting/bowling team ID | Canonical player and correct innings side |
+| runs, balls, boundaries, strike rate | Batter innings figures |
+| dismissal fields, `is_not_out` | Dismissal attribution and not-out state |
+| overs, maidens, runs conceded, wickets, economy | Bowler innings figures |
+| `batting_position`, `bowling_position` | Original source order used by the scorecard UI |
+
+Innings runs, wickets, and overs are refreshed during the same rebuild. Overs are
+calculated from legal balls using each source file's `balls_per_over`; wides and
+no-balls never advance the over count.
+
 ### deliveries
 
 | Column | Type | Description |
