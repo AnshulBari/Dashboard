@@ -18,9 +18,9 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['Inter', 'Arial', 'Helvetica Neue', 'system-ui', 'sans-serif'],
-        display: ['Inter', 'Arial', 'Helvetica Neue', 'system-ui', 'sans-serif'],
-        mono: ['Inter', 'Arial', 'Helvetica Neue', 'system-ui', 'sans-serif'],
+        sans: ['Manrope', 'Inter', 'Arial', 'Helvetica Neue', 'system-ui', 'sans-serif'],
+        display: ['Manrope', 'Inter', 'Arial', 'Helvetica Neue', 'system-ui', 'sans-serif'],
+        mono: ['Manrope', 'Inter', 'Arial', 'Helvetica Neue', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
         panel: '0 24px 80px rgba(0,0,0,.36)',

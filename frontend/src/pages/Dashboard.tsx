@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
 import {
-  ArrowUpRight, ChevronRight, CircleDot,
-  MapPin, Radio, Shield, Sparkles, Trophy, Users, WifiOff,
+  ArrowUpRight, ChevronRight,
+  Radio, WifiOff,
 } from 'lucide-react'
 import {
   useLiveMatches, useMatchList, usePlayerList, useTeamList, useVenueList,
@@ -206,12 +206,10 @@ export default function Dashboard() {
     <div className="dashboard-stage">
       <div className="dashboard-heading">
         <div>
-          <div className="eyebrow"><Sparkles /> Live intelligence workspace</div>
-          <h1>Matchday command center</h1>
+          <h1>Cricket dashboard</h1>
           <p>{format === 'International' ? 'T20I, ODI and Test intelligence' : `${format} intelligence`} from ball-by-ball history and live match signals.</p>
         </div>
         <div className="dashboard-meta">
-          <span><i className="signal-dot" /> Systems operational</span>
           <strong>4.17M</strong>
           <small>deliveries analyzed</small>
         </div>
@@ -297,14 +295,13 @@ export default function Dashboard() {
         <div className="dashboard-center space-y-4">
           <section className="spotlight-card">
             <div className="spotlight-shade" />
-            <div className="spotlight-topline">
-              <span><CircleDot /> Intelligence spotlight</span>
+            <div className="spotlight-topline spotlight-topline-compact">
               <FormatBadge format={format === 'International' ? 'INTL' : format} />
             </div>
             <div className="spotlight-content">
               <div className="spotlight-copy">
                 <p className="panel-kicker">Featured performer</p>
-                <h2>{featuredPlayer?.full_name || featuredPlayer?.name || 'Cricket Intelligence'}</h2>
+                <h2>{featuredPlayer?.full_name || featuredPlayer?.name || 'Crease Intelligence'}</h2>
                 <p>{featuredPlayer?.team_name || featuredPlayer?.country || 'Historical performance model'}</p>
                 {featuredPlayer && (
                   <Link to={profileHref(featuredPlayer.id, format)} className="btn-primary mt-5 gap-2">
@@ -313,7 +310,7 @@ export default function Dashboard() {
                 )}
               </div>
               <PlayerPortrait
-                name={featuredPlayer?.name || 'Cricket Intelligence'}
+                name={featuredPlayer?.name || 'Crease Intelligence'}
                 fullName={featuredPlayer?.full_name}
                 imageUrl={featuredPlayer?.image_url}
                 size="spotlight"
@@ -348,13 +345,6 @@ export default function Dashboard() {
                 <EmptyState title="No recent matches" message="No results for this format." />
               )}
             </div>
-          </section>
-
-          <section className="data-ribbon">
-            <div><Users /><span><strong>{players.data?.total?.toLocaleString() || '—'}</strong> players</span></div>
-            <div><Shield /><span><strong>{teams.data?.total?.toLocaleString() || '—'}</strong> teams</span></div>
-            <div><Trophy /><span><strong>{matches.data?.total?.toLocaleString() || '—'}</strong> matches</span></div>
-            <div><MapPin /><span><strong>{venues.data?.total?.toLocaleString() || '—'}</strong> venues</span></div>
           </section>
         </div>
 

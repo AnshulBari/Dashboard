@@ -463,7 +463,7 @@
   border-radius: 1px !important;
 }
 
-/* The short indexed corner is the visual signature of a Cricket IQ module. */
+/* The short indexed corner is the original visual signature of a Crease module. */
 .card::after,
 .card-solid::after,
 .card-glass::after,

@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  Activity, BarChart3, CircleUserRound, LayoutDashboard, MapPin,
+  BarChart3, LayoutDashboard, MapPin,
   Menu, Radio, Search, Shield, Swords, Trophy, Users, X,
 } from 'lucide-react'
 import { competitionApi } from '@/lib/api'
@@ -33,6 +33,9 @@ export default function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const currentFormat = searchParams.get('format') || 'International'
+  const routeLabel = location.pathname === '/'
+    ? 'Overview'
+    : navItems.find((item) => item.to !== '/' && location.pathname.startsWith(item.to))?.label || 'Intelligence'
 
   const setFormat = (format: string) => {
     const params = new URLSearchParams(searchParams)
@@ -69,15 +72,15 @@ export default function Layout() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell crease-theme">
       <div className="stadium-backdrop" aria-hidden="true" />
       <header className="app-header">
         <div className="topbar">
-          <NavLink to="/" className="brand-lockup" aria-label="Cricket IQ home">
+          <NavLink to="/" className="brand-lockup" aria-label="Crease home">
             <span className="brand-mark"><span className="brand-seam" /></span>
             <span className="brand-copy">
-              <span className="brand-name">CRICKET IQ</span>
-              <span className="brand-subtitle">Intelligence Center</span>
+              <span className="brand-name">CREASE</span>
+              <span className="brand-subtitle">Cricket, clearly</span>
             </span>
           </NavLink>
 
@@ -118,20 +121,12 @@ export default function Layout() {
             ))}
           </nav>
 
-          <div className="member-chip">
-            <span className="member-avatar"><CircleUserRound /></span>
-            <span className="member-copy">
-              <strong>Analyst</strong>
-              <small>Pro workspace</small>
-            </span>
-            <Activity className="member-activity" />
-          </div>
         </div>
 
         <div className="context-bar">
           <div className="context-route">
             <span className="signal-dot" />
-            <span>{location.pathname === '/' ? 'Command center' : location.pathname.split('/')[1]}</span>
+            <span>{routeLabel}</span>
           </div>
           <div className="format-switch" aria-label="Match format filter">
             {FORMATS.map((format) => (

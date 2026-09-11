@@ -1,5 +1,5 @@
 /**
- * Centralized API Client for the Cricket Intelligence Platform.
+ * Centralized API client for Crease.
  * 
  * All requests go through /api/* which is proxied to the backend.
  * In production, the VITE_API_URL env var overrides the base URL.
