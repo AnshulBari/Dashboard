@@ -6,13 +6,14 @@
       "framework": "vite"
     },
     "backend": {
-      "root": "backend/",
-      "entrypoint": "main:app"
+      "root": ".",
+      "entrypoint": "backend.main:app",
+      "framework": "fastapi"
     }
   },
   "rewrites": [
     {
-      "source": "/api/:path*",
+      "source": "/api/(.*)",
       "destination": {
         "service": "backend"
       }

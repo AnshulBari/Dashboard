@@ -1,0 +1,28 @@
+# Local databases and source datasets are not runtime dependencies. Production
+# reads from the DATABASE_URL configured in Vercel.
+data/
+database/
+data_pipeline/
+
+# Development, migration, and test-only material.
+docs/
+scripts/
+tests/
+migration_phase*.py
+migrate_sqlite_to_pg.py
+setup.py
+
+# Local environments, caches, build output, and logs.
+.env
+.env.*
+.freebuff/
+.git/
+.pytest_cache/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.log
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+
