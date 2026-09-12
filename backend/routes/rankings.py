@@ -6,7 +6,7 @@ Endpoints for player and team rankings.
 
 Supports two ranking sources:
 1. Platform rankings - computed from historical analytics
-2. ICC rankings - from external provider (CricketData.org)
+2. Official ICC rankings - from the feed used by icc-cricket.com
 """
 
 from fastapi import APIRouter, Query, Depends, HTTPException
@@ -18,16 +18,16 @@ from backend.utils.database import get_db, engine
 from backend.utils.stat_invariants import safe_not_outs_sql, sanitize_stat_record
 from backend.utils.validation import format_scope_clause, validate_format, VALID_FORMATS
 from backend.services.rankings import RankingsService
-from backend.providers.cricketdata import CricketDataProvider
+from backend.providers.icc_rankings import ICCRankingsProvider
 
 router = APIRouter()
 
 # Initialize rankings service with provider
-_rankings_provider = CricketDataProvider()
+_rankings_provider = ICCRankingsProvider()
 _rankings_service = RankingsService(
     provider=_rankings_provider,
     db_engine=engine,
-    cache_ttl=3600,  # 1 hour cache for rankings
+    cache_ttl=21600,  # Recheck during the day so Wednesday updates arrive promptly.
 )
 
 
@@ -224,7 +224,7 @@ async def get_icc_rankings(
     """
     Get official ICC rankings from external provider.
 
-    Rankings are sourced from CricketData.org and mapped to
+    Rankings are sourced from the official ICC website feed and mapped to
     canonical player/team IDs where possible.
 
     Note: ICC rankings are separate from platform-computed rankings.
@@ -248,7 +248,8 @@ async def get_icc_rankings(
             force_refresh=refresh,
         )
 
-    # Add provider availability info
+    result["official_url"] = "https://www.icc-cricket.com/rankings"
+    result["update_schedule"] = "Wednesday"
     result["provider_available"] = _rankings_service.is_available()
 
     return result

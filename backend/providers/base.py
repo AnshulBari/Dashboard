@@ -62,6 +62,7 @@ class RankingEntry:
     ranking_date: Optional[str] = None
     fetched_at: Optional[datetime] = None
     source: Optional[str] = None
+    career_best: Optional[str] = None
 
 
 @dataclass
@@ -78,6 +79,7 @@ class TeamRankingEntry:
     ranking_date: Optional[str] = None
     fetched_at: Optional[datetime] = None
     source: Optional[str] = None
+    matches: Optional[int] = None
 
 
 @dataclass

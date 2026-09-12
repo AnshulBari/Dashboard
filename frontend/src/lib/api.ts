@@ -336,7 +336,7 @@ export const rankingApi = {
     ),
   
   getIcc: (format: string, category: string) =>
-    fetchJson<{ rankings: RankingRow[]; provider_available: boolean }>(
+    fetchJson<IccRankingsResponse>(
       `/rankings/icc?format=${format}&category=${category}`
     ),
 }
@@ -911,19 +911,42 @@ export interface MatchupRow {
 }
 
 export interface RankingRow {
-  id: string
+  id?: string
   rank: number
-  name: string
-  country: string | null
-  team: string | null
-  rating: number | null
-  runs: number | null
-  wickets: number | null
-  batting_average: number | null
-  bowling_average: number | null
-  strike_rate: number | null
-  economy: number | null
-  impact_score: number | null
+  name?: string
+  country?: string | null
+  team?: string | null
+  team_name?: string | null
+  rating?: number | null
+  runs?: number | null
+  wickets?: number | null
+  batting_average?: number | null
+  bowling_average?: number | null
+  strike_rate?: number | null
+  economy?: number | null
+  impact_score?: number | null
+  points?: number | null
+  matches?: number | null
+  change?: number | null
+  career_best?: string | null
+  player_id?: string | null
+  team_id?: string | null
+  source_id?: string | null
+}
+
+export interface IccRankingsResponse {
+  format: string
+  category?: string
+  rankings: RankingRow[]
+  total: number
+  source: string | null
+  fetched_at: string | null
+  ranking_date: string | null
+  cached: boolean
+  stale: boolean
+  provider_available: boolean
+  official_url: string
+  update_schedule: string
 }
 
 export interface LiveMatch {

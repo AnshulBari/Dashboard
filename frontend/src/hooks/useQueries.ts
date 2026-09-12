@@ -313,7 +313,7 @@ export function useIccRankings(format: string, category: string) {
   return useQuery({
     queryKey: queryKeys.ranking.icc(format, category),
     queryFn: () => rankingApi.getIcc(format, category),
-    staleTime: 60 * 60 * 1000,
+    staleTime: 6 * 60 * 60 * 1000,
   })
 }
 

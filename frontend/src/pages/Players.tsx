@@ -29,6 +29,8 @@ export default function Players() {
     search: debouncedSearch || undefined,
     sort_by: sortBy,
     limit: 50,
+    full_members_only: true,
+    recent_only: !debouncedSearch,
   })
 
   const playerList = players.data?.players || []
@@ -42,10 +44,15 @@ export default function Players() {
   return (
     <div className="space-y-5">
       <div className="page-header">
-        <h1 className="page-title flex items-center gap-2">
-          <Users className="h-5 w-5 text-emerald-400" />
-          Players
-        </h1>
+        <div>
+          <h1 className="page-title flex items-center gap-2">
+            <Users className="h-5 w-5 text-emerald-400" />
+            Players
+          </h1>
+          <p className="page-subtitle">
+            {debouncedSearch ? 'Search across Full Member player history' : 'Recently active players from the 12 Test-playing nations'}
+          </p>
+        </div>
         <p className="page-subtitle">
           {players.data?.total?.toLocaleString() || '—'} players · {format === 'International' ? 'T20I + ODI + Test' : format}
         </p>

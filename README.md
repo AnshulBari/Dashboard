@@ -727,11 +727,17 @@ Player detail routes retain International as their default scope.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/rankings` | Get platform rankings |
+| GET | `/api/rankings/icc` | Official ICC men's rankings with ranking date and weekly snapshot fallback |
+| GET | `/api/rankings/platform` | Legacy Crease-computed analytical rankings |
 
 **Query parameters:**
 - `format` — T20, T20I, ODI, Test
-- `category` — batting, bowling, allrounder
+- `category` — batting, bowling, allrounder, teams
+
+The Rankings screen uses the official ICC feed exclusively. Men's player
+tables follow the ICC's Wednesday publication cycle and are cached for six
+hours. Refresh the checked-in offline fallback with
+`python scripts/sync_icc_rankings.py`.
 
 #### Other
 

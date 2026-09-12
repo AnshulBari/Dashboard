@@ -382,12 +382,14 @@ class RankingsService:
                         "change": r.change,
                         "player_id": r.player_id,
                         "source_id": r.source_id,
+                        "career_best": r.career_best,
                     }
                     for r in rankings
                 ],
                 "total": len(rankings),
                 "source": rankings[0].source if rankings else None,
                 "fetched_at": rankings[0].fetched_at.isoformat() if rankings and rankings[0].fetched_at else None,
+                "ranking_date": rankings[0].ranking_date if rankings else None,
                 "cached": False,
                 "stale": False,
             }
@@ -472,12 +474,14 @@ class RankingsService:
                         "change": r.change,
                         "team_id": r.team_id,
                         "source_id": r.source_id,
+                        "matches": r.matches,
                     }
                     for r in rankings
                 ],
                 "total": len(rankings),
                 "source": rankings[0].source if rankings else None,
                 "fetched_at": rankings[0].fetched_at.isoformat() if rankings and rankings[0].fetched_at else None,
+                "ranking_date": rankings[0].ranking_date if rankings else None,
                 "cached": False,
                 "stale": False,
             }
