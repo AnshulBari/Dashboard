@@ -25,6 +25,7 @@ import logging
 load_dotenv()
 
 from backend.routes import players, teams, venues, matches, matchups, rankings, news, live, competitions, analytics, dashboard
+from backend.utils.cache_control import edge_cache_policy
 from backend.utils.database import init_db, close_db, engine
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,30 @@ app.add_middleware(
 
 # GZip compression — reduces API egress by ~70-80% for JSON responses
 app.add_middleware(GZipMiddleware, minimum_size=500)
+
+
+@app.middleware("http")
+async def add_edge_cache_headers(request: Request, call_next):
+    """Cache public read responses at Vercel's edge by data freshness."""
+    response = await call_next(request)
+
+    if request.method != "GET" or response.status_code != 200:
+        return response
+
+    existing_cache_control = response.headers.get("Cache-Control", "").casefold()
+    if "private" in existing_cache_control or "no-store" in existing_cache_control:
+        return response
+
+    policy = edge_cache_policy(request.url.path, request.query_params)
+    if policy is None:
+        return response
+
+    # Browsers revalidate so a new deployment is visible immediately.  Shared
+    # CDNs retain public responses and refresh them in the background.
+    response.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
+    response.headers["CDN-Cache-Control"] = policy.cdn_cache_control
+    response.headers["Vercel-CDN-Cache-Control"] = policy.cdn_cache_control
+    return response
 
 # Include routers
 app.include_router(players.router, prefix="/api/players", tags=["Players"])
