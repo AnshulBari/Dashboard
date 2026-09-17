@@ -1,5 +1,5 @@
-import { lazy, Suspense, type ReactNode } from 'react'
-import { Routes, Route } from 'react-router-dom'
+import { lazy, Suspense, useLayoutEffect, type ReactNode } from 'react'
+import { Routes, Route, useLocation } from 'react-router-dom'
 import Layout from './layouts/Layout'
 import Dashboard from './pages/Dashboard'
 
@@ -32,26 +32,41 @@ function LazyPage({ children }: { children: ReactNode }) {
   return <Suspense fallback={<PageLoader />}>{children}</Suspense>
 }
 
+function RouteScrollReset() {
+  const { pathname } = useLocation()
+
+  useLayoutEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    document.documentElement.scrollTop = 0
+    document.body.scrollTop = 0
+  }, [pathname])
+
+  return null
+}
+
 function App() {
   return (
-    <Routes>
-      <Route element={<Layout />}>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/players" element={<LazyPage><Players /></LazyPage>} />
-        <Route path="/players/:id" element={<LazyPage><PlayerDetail /></LazyPage>} />
-        <Route path="/teams" element={<LazyPage><Teams /></LazyPage>} />
-        <Route path="/teams/:id" element={<LazyPage><TeamDetail /></LazyPage>} />
-        <Route path="/venues" element={<LazyPage><Venues /></LazyPage>} />
-        <Route path="/venues/:id" element={<LazyPage><VenueDetail /></LazyPage>} />
-        <Route path="/matchups" element={<LazyPage><Matchups /></LazyPage>} />
-        <Route path="/matches" element={<LazyPage><Matches /></LazyPage>} />
-        <Route path="/matches/:id" element={<LazyPage><MatchDetail /></LazyPage>} />
-        <Route path="/live" element={<LazyPage><Live /></LazyPage>} />
-        <Route path="/rankings" element={<LazyPage><Rankings /></LazyPage>} />
-        <Route path="/competitions" element={<LazyPage><Rankings /></LazyPage>} />
-        <Route path="/competitions/:id" element={<LazyPage><CompetitionDetail /></LazyPage>} />
-      </Route>
-    </Routes>
+    <>
+      <RouteScrollReset />
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/players" element={<LazyPage><Players /></LazyPage>} />
+          <Route path="/players/:id" element={<LazyPage><PlayerDetail /></LazyPage>} />
+          <Route path="/teams" element={<LazyPage><Teams /></LazyPage>} />
+          <Route path="/teams/:id" element={<LazyPage><TeamDetail /></LazyPage>} />
+          <Route path="/venues" element={<LazyPage><Venues /></LazyPage>} />
+          <Route path="/venues/:id" element={<LazyPage><VenueDetail /></LazyPage>} />
+          <Route path="/matchups" element={<LazyPage><Matchups /></LazyPage>} />
+          <Route path="/matches" element={<LazyPage><Matches /></LazyPage>} />
+          <Route path="/matches/:id" element={<LazyPage><MatchDetail /></LazyPage>} />
+          <Route path="/live" element={<LazyPage><Live /></LazyPage>} />
+          <Route path="/rankings" element={<LazyPage><Rankings /></LazyPage>} />
+          <Route path="/competitions" element={<LazyPage><Rankings /></LazyPage>} />
+          <Route path="/competitions/:id" element={<LazyPage><CompetitionDetail /></LazyPage>} />
+        </Route>
+      </Routes>
+    </>
   )
 }
 

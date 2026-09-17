@@ -48,10 +48,16 @@
   }
 
   .stadium-backdrop {
-    @apply pointer-events-none fixed inset-0 -z-20 bg-cover bg-center;
+    @apply pointer-events-none fixed left-0 top-0 -z-20 w-full bg-cover bg-center;
+    height: 100vh;
+    height: 100lvh;
     background-image: url('/assets/pinterest-stadium-rotated.png');
     filter: brightness(.94) saturate(.9) contrast(1.02);
-    transform: scale(1.02);
+    transform: translate3d(0, 0, 0) scale(1.02);
+    transform-origin: center;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    contain: strict;
   }
 
   .stadium-backdrop::after {
@@ -412,6 +418,8 @@
   .table { @apply w-full border-collapse; }
   .table thead { @apply bg-black/20; }
   .table th { @apply px-4 py-3 text-left text-[8px] font-bold uppercase tracking-[.14em] text-gray-500; }
+  .table th.text-right,
+  .table td.text-right { text-align: right; }
   .table td { @apply border-t border-white/[.055] px-4 py-3.5 text-xs text-gray-300; }
   .table tbody tr { @apply transition-colors hover:bg-white/[.035]; }
 
@@ -698,8 +706,12 @@ button,
 @media (max-width: 767px) {
   .topbar { height: 60px; }
   .context-bar { height: 42px; }
-  .app-main { min-height: calc(100vh - 102px); }
-  .stadium-backdrop { background-position: 55% center; }
+  .app-shell { min-height: 100svh; }
+  .app-main { min-height: calc(100svh - 102px); }
+  .stadium-backdrop {
+    height: 100lvh;
+    background-position: 55% center;
+  }
   .dashboard-heading { align-items: flex-start; }
   .spotlight-copy { max-width: 76%; }
   .spotlight-stats div:nth-child(2) { border-right: 0; }
