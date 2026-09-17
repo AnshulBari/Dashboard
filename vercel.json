@@ -22,91 +22,91 @@
       "source": "/live",
       "destination": {
         "service": "frontend",
-        "path": "/index.html"
+        "path": "/"
       }
     },
     {
       "source": "/matches",
       "destination": {
         "service": "frontend",
-        "path": "/index.html"
+        "path": "/"
       }
     },
     {
       "source": "/matches/(.*)",
       "destination": {
         "service": "frontend",
-        "path": "/index.html"
+        "path": "/"
       }
     },
     {
       "source": "/players",
       "destination": {
         "service": "frontend",
-        "path": "/index.html"
+        "path": "/"
       }
     },
     {
       "source": "/players/(.*)",
       "destination": {
         "service": "frontend",
-        "path": "/index.html"
+        "path": "/"
       }
     },
     {
       "source": "/teams",
       "destination": {
         "service": "frontend",
-        "path": "/index.html"
+        "path": "/"
       }
     },
     {
       "source": "/teams/(.*)",
       "destination": {
         "service": "frontend",
-        "path": "/index.html"
+        "path": "/"
       }
     },
     {
       "source": "/venues",
       "destination": {
         "service": "frontend",
-        "path": "/index.html"
+        "path": "/"
       }
     },
     {
       "source": "/venues/(.*)",
       "destination": {
         "service": "frontend",
-        "path": "/index.html"
+        "path": "/"
       }
     },
     {
       "source": "/matchups",
       "destination": {
         "service": "frontend",
-        "path": "/index.html"
+        "path": "/"
       }
     },
     {
       "source": "/rankings",
       "destination": {
         "service": "frontend",
-        "path": "/index.html"
+        "path": "/"
       }
     },
     {
       "source": "/competitions",
       "destination": {
         "service": "frontend",
-        "path": "/index.html"
+        "path": "/"
       }
     },
     {
       "source": "/competitions/(.*)",
       "destination": {
         "service": "frontend",
-        "path": "/index.html"
+        "path": "/"
       }
     },
     {
