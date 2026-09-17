@@ -3,7 +3,13 @@
   "services": {
     "frontend": {
       "root": "frontend/",
-      "framework": "vite"
+      "framework": "vite",
+      "rewrites": [
+        {
+          "source": "/(.*)",
+          "destination": "/index.html"
+        }
+      ]
     },
     "backend": {
       "root": ".",
@@ -16,97 +22,6 @@
       "source": "/api/(.*)",
       "destination": {
         "service": "backend"
-      }
-    },
-    {
-      "source": "/live",
-      "destination": {
-        "service": "frontend",
-        "path": "/"
-      }
-    },
-    {
-      "source": "/matches",
-      "destination": {
-        "service": "frontend",
-        "path": "/"
-      }
-    },
-    {
-      "source": "/matches/(.*)",
-      "destination": {
-        "service": "frontend",
-        "path": "/"
-      }
-    },
-    {
-      "source": "/players",
-      "destination": {
-        "service": "frontend",
-        "path": "/"
-      }
-    },
-    {
-      "source": "/players/(.*)",
-      "destination": {
-        "service": "frontend",
-        "path": "/"
-      }
-    },
-    {
-      "source": "/teams",
-      "destination": {
-        "service": "frontend",
-        "path": "/"
-      }
-    },
-    {
-      "source": "/teams/(.*)",
-      "destination": {
-        "service": "frontend",
-        "path": "/"
-      }
-    },
-    {
-      "source": "/venues",
-      "destination": {
-        "service": "frontend",
-        "path": "/"
-      }
-    },
-    {
-      "source": "/venues/(.*)",
-      "destination": {
-        "service": "frontend",
-        "path": "/"
-      }
-    },
-    {
-      "source": "/matchups",
-      "destination": {
-        "service": "frontend",
-        "path": "/"
-      }
-    },
-    {
-      "source": "/rankings",
-      "destination": {
-        "service": "frontend",
-        "path": "/"
-      }
-    },
-    {
-      "source": "/competitions",
-      "destination": {
-        "service": "frontend",
-        "path": "/"
-      }
-    },
-    {
-      "source": "/competitions/(.*)",
-      "destination": {
-        "service": "frontend",
-        "path": "/"
       }
     },
     {
