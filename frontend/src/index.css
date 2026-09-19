@@ -11,6 +11,16 @@
   --panel: rgba(14, 18, 15, .84);
   --panel-strong: rgba(10, 13, 11, .94);
   --green: #42e76d;
+  --stadium-image: url('/assets/stadium-desktop.webp');
+}
+
+@supports (background-image: image-set(url('/assets/stadium-desktop.avif') type('image/avif'))) {
+  :root {
+    --stadium-image: image-set(
+      url('/assets/stadium-desktop.avif') type('image/avif'),
+      url('/assets/stadium-desktop.webp') type('image/webp')
+    );
+  }
 }
 
 @layer base {
@@ -51,7 +61,7 @@
     @apply pointer-events-none fixed left-0 top-0 -z-20 w-full bg-cover bg-center;
     height: 100vh;
     height: 100lvh;
-    background-image: url('/assets/pinterest-stadium-rotated.png');
+    background-image: var(--stadium-image);
     filter: brightness(.94) saturate(.9) contrast(1.02);
     transform: translate3d(0, 0, 0) scale(1.02);
     transform-origin: center;
@@ -273,7 +283,7 @@
   .conditions-read { @apply mt-2 text-[8px] font-medium text-brand-300; }
 
   /* Match detail */
-  .match-hero { @apply relative overflow-hidden rounded-[24px] border border-white/[.1] px-5 py-5 text-center shadow-panel sm:px-8 sm:py-7; background: linear-gradient(180deg, rgba(10,14,11,.42), rgba(7,10,8,.88)), url('/assets/pinterest-stadium-rotated.png') center 54% / cover; }
+  .match-hero { @apply relative overflow-hidden rounded-[24px] border border-white/[.1] px-5 py-5 text-center shadow-panel sm:px-8 sm:py-7; background-image: linear-gradient(180deg, rgba(10,14,11,.42), rgba(7,10,8,.88)), var(--stadium-image); background-position: center, center 54%; background-repeat: no-repeat; background-size: auto, cover; }
   .match-hero::after { content: ''; @apply pointer-events-none absolute inset-0; background: radial-gradient(circle at 50% 45%, rgba(66,231,109,.1), transparent 34%); }
   .match-hero > * { @apply relative z-10; }
   .match-hero-top { @apply flex items-center justify-between text-[8px] font-bold uppercase tracking-[.14em] text-gray-400; }
@@ -294,7 +304,7 @@
   .scorecard-block h3 { @apply px-4 py-3 font-display text-xs font-semibold text-white; }
 
   /* Player profile */
-  .player-profile-hero { @apply relative overflow-hidden rounded-[24px] border border-white/[.1] shadow-panel; background: linear-gradient(90deg, rgba(7,10,8,.9), rgba(7,10,8,.5)), url('/assets/pinterest-stadium-rotated.png') center 54% / cover; }
+  .player-profile-hero { @apply relative overflow-hidden rounded-[24px] border border-white/[.1] shadow-panel; background-image: linear-gradient(90deg, rgba(7,10,8,.9), rgba(7,10,8,.5)), var(--stadium-image); background-position: center, center 54%; background-repeat: no-repeat; background-size: auto, cover; }
   .player-profile-hero::after { content: ''; @apply pointer-events-none absolute inset-0; background: radial-gradient(circle at 15% 40%, rgba(66,231,109,.13), transparent 28%); }
   .profile-hero-grid { @apply relative z-10 flex flex-col gap-7 px-5 py-7 md:flex-row md:items-center md:justify-between md:px-8 md:py-9; }
   .profile-identity { @apply flex min-w-0 items-center gap-4 sm:gap-6; }
@@ -704,6 +714,17 @@ button,
 .tournament-venue small { display: block; margin-top: .2rem; color: #59635d; font-size: 8px; }
 
 @media (max-width: 767px) {
+  :root { --stadium-image: url('/assets/stadium-mobile.webp'); }
+
+  @supports (background-image: image-set(url('/assets/stadium-mobile.avif') type('image/avif'))) {
+    :root {
+      --stadium-image: image-set(
+        url('/assets/stadium-mobile.avif') type('image/avif'),
+        url('/assets/stadium-mobile.webp') type('image/webp')
+      );
+    }
+  }
+
   .topbar { height: 60px; }
   .context-bar { height: 42px; }
   .app-shell { min-height: 100svh; }
